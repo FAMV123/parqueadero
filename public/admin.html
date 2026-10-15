@@ -47,7 +47,16 @@
         </div>
       </div>
       <div class="card">
-        <h2>Detalle de cobros</h2>
+        <h2>💵 Pagos de mensualidades</h2>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>N°</th><th>Fecha</th><th>Placa</th><th>Cliente</th><th>Tipo</th><th>Válida hasta</th><th>Recibió</th><th>Valor</th></tr></thead>
+            <tbody id="tablaPagosMens"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Detalle de cobros de parqueo</h2>
         <p class="nota">El detalle con placas se conserva 90 días. Los días más antiguos aparecen arriba en "Por día" con sus totales (marcados como <i>resumen</i>).</p>
         <div class="tabla">
           <table>
@@ -99,13 +108,13 @@
         <h2>Tipos de vehículo y tarifas</h2>
         <div class="tabla">
           <table>
-            <thead><tr><th>Nombre</th><th>Valor hora</th><th>Min. gracia</th><th>Tope por día</th><th>Orden</th><th>Activo</th></tr></thead>
+            <thead><tr><th>Nombre</th><th>Valor hora</th><th>Min. gracia</th><th>Tope por día</th><th>Mensualidad ($/mes)</th><th>Orden</th><th>Activo</th></tr></thead>
             <tbody id="tablaTarifas"></tbody>
           </table>
         </div>
         <button class="btn verde" style="margin-top:12px" onclick="guardarTarifas()">Guardar cambios</button>
         <div id="msgTarifas" class="aviso"></div>
-        <p class="nota">Se cobra por hora o fracción (mínimo 1 hora). Los <b>minutos de gracia</b> son la tolerancia antes de cobrar otra hora. El <b>tope por día</b> es lo máximo por cada 24 horas (0 = sin tope). Un tipo <b>inactivo</b> deja de salir en la caja, pero su historial se conserva.</p>
+        <p class="nota">Se cobra por hora o fracción (mínimo 1 hora). Los <b>minutos de gracia</b> son la tolerancia antes de cobrar otra hora. El <b>tope por día</b> es lo máximo por cada 24 horas (0 = sin tope). El valor de <b>mensualidad</b> es el precio sugerido que aparece al crear o renovar una mensualidad. Un tipo <b>inactivo</b> deja de salir en la caja, pero su historial se conserva.</p>
       </div>
       <div class="card">
         <h2>Agregar tipo de vehículo</h2>
@@ -114,6 +123,7 @@
           <div><label>Valor hora</label><input id="nHora" type="number" min="0"></div>
           <div><label>Min. gracia</label><input id="nGracia" type="number" min="0" value="5"></div>
           <div><label>Tope por día</label><input id="nTope" type="number" min="0" value="0"></div>
+          <div><label>Mensualidad ($/mes)</label><input id="nMes" type="number" min="0" value="0"></div>
           <button class="btn" onclick="agregarTipo()">Agregar</button>
         </div>
         <div id="msgNuevo" class="aviso"></div>
@@ -136,6 +146,14 @@
             <div><label>Desde</label><input id="mIni" type="date"></div>
             <div><label>Vence</label><input id="mFin" type="date" required></div>
             <div><label>Activa</label><select id="mActivo"><option value="1">Sí</option><option value="0">No</option></select></div>
+          </div>
+          <div class="fila" id="mPagoBox">
+            <div><label>Pago del primer mes</label>
+              <select id="mPago">
+                <option value="caja">Recibido en la caja (se suma al cierre)</option>
+                <option value="admin">Lo recibió el administrador</option>
+                <option value="no">No ha pagado</option>
+              </select></div>
           </div>
           <div class="acciones" style="margin-top:12px">
             <button class="btn verde" type="submit">Guardar</button>
@@ -219,6 +237,7 @@
         <td><input type="number" min="0" id="t_${t.tipo}_hora" value="${t.valor_hora}"></td>
         <td><input type="number" min="0" id="t_${t.tipo}_gracia" value="${t.minutos_gracia}"></td>
         <td><input type="number" min="0" id="t_${t.tipo}_tope" value="${t.tope_dia}"></td>
+        <td><input type="number" min="0" id="t_${t.tipo}_mes" value="${t.valor_mes || 0}"></td>
         <td><input type="number" min="0" id="t_${t.tipo}_orden" value="${t.orden}" style="max-width:80px"></td>
         <td><input type="checkbox" id="t_${t.tipo}_activo" ${t.activo ? 'checked' : ''} style="width:auto"></td>
       </tr>`).join('');
@@ -235,6 +254,7 @@
           valor_hora: $(`t_${t.tipo}_hora`).value,
           minutos_gracia: $(`t_${t.tipo}_gracia`).value,
           tope_dia: $(`t_${t.tipo}_tope`).value,
+          valor_mes: $(`t_${t.tipo}_mes`).value,
           orden: $(`t_${t.tipo}_orden`).value,
           activo: $(`t_${t.tipo}_activo`).checked,
         })) } });
@@ -246,7 +266,7 @@
     async function agregarTipo() {
       try {
         await api('/api/admin/tipos', { method: 'POST', body: {
-          nombre: $('nNombre').value, valor_hora: $('nHora').value, minutos_gracia: $('nGracia').value, tope_dia: $('nTope').value,
+          nombre: $('nNombre').value, valor_hora: $('nHora').value, minutos_gracia: $('nGracia').value, tope_dia: $('nTope').value, valor_mes: $('nMes').value,
         } });
         aviso($('msgNuevo'), `"${$('nNombre').value}" agregado ✔. Ya aparece en la caja.`);
         $('nNombre').value = ''; $('nHora').value = '';
@@ -282,14 +302,17 @@
         $('kpisResumen').innerHTML =
           kpi('Total recaudado', pesos(t.total), r.desde === r.hasta ? r.desde : `${r.desde} a ${r.hasta}`) +
           tipos.map((k) => kpi(`${icono(k)} ${esc(nombreTipo(k))}`, (t.porTipo[k] || {}).n || 0, pesos((t.porTipo[k] || {}).valor || 0))).join('') +
+          kpi('💵 Mensualidades cobradas', pesos(t.mensValor), `${t.mensPagos} pago(s)`) +
           kpi('Mensualidades (entradas)', t.mensEntradas, mensTxt) +
           kpi('Dentro ahora', dentro.registros.length, 'visitantes') +
           kpi('En caja sin cerrar', pesos(caja.pendiente.total_sistema), caja.pendiente.desde ? `desde ${fechaHora(caja.pendiente.desde)}` : 'todo cerrado ✔');
 
-        $('cabDias').innerHTML = `<tr><th>Fecha</th>${tipos.map((k) => `<th>${esc(nombreTipo(k))}</th>`).join('')}<th>Total</th><th>Mens. entradas</th><th>Mens. salidas</th></tr>`;
+        $('cabDias').innerHTML = `<tr><th>Fecha</th>${tipos.map((k) => `<th>${esc(nombreTipo(k))}</th>`).join('')}<th>Mens. pagos</th><th>Total</th><th>Mens. entradas</th><th>Mens. salidas</th></tr>`;
         const celda = (d, k) => { const x = d.porTipo[k]; return x ? `${x.n} · ${pesos(x.valor)}` : '—'; };
-        $('tablaDias').innerHTML = r.dias.map((d) => `<tr><td>${d.fecha}${d.resumido ? ' <span class="nota"><i>resumen</i></span>' : ''}</td>${tipos.map((k) => `<td>${celda(d, k)}</td>`).join('')}<td><b>${pesos(d.total)}</b></td><td>${d.mensEntradas}</td><td>${d.mensSalidas}</td></tr>`).join('')
-          || `<tr><td colspan="${tipos.length + 4}" class="nota">Sin movimientos en este rango</td></tr>`;
+        $('tablaDias').innerHTML = r.dias.map((d) => `<tr><td>${d.fecha}${d.resumido ? ' <span class="nota"><i>resumen</i></span>' : ''}</td>${tipos.map((k) => `<td>${celda(d, k)}</td>`).join('')}<td>${d.mensPagos ? `${d.mensPagos} · ${pesos(d.mensValor)}` : '—'}</td><td><b>${pesos(d.total)}</b></td><td>${d.mensEntradas}</td><td>${d.mensSalidas}</td></tr>`).join('')
+          || `<tr><td colspan="${tipos.length + 5}" class="nota">Sin movimientos en este rango</td></tr>`;
+        $('tablaPagosMens').innerHTML = r.pagos.slice().reverse().map((p) => `<tr><td>${p.id}</td><td>${fechaHora(p.fecha)}</td><td><b>${esc(p.placa)}</b></td><td>${esc(p.propietario)}</td><td>${p.clase === 'nueva' ? 'Nueva' : 'Renovación'}</td><td>${p.hasta}</td><td>${p.en_caja ? 'Caja (' + esc(p.usuario) + ')' : 'Administrador'}</td><td>${pesos(p.valor)}</td></tr>`).join('')
+          || '<tr><td colspan="8" class="nota">Sin pagos de mensualidades en este rango</td></tr>';
         $('tablaDetalle').innerHTML = r.registros.slice().reverse().map((x) => `<tr><td>${x.id}</td><td><b>${esc(x.placa)}</b></td><td>${esc(nombreTipo(x.tipo))}</td><td>${fechaHora(x.entrada)}</td><td>${fechaHora(x.salida)}</td><td>${duracion(x.minutos || 0)}</td><td>${pesos(x.valor)}</td></tr>`).join('')
           || '<tr><td colspan="7" class="nota">Sin cobros</td></tr>';
       } catch (e) { alert(e.message); }
@@ -315,7 +338,7 @@
         $('ciNumS').textContent = `${cierres.filter((c) => !c.revisado).length} sin revisar`;
         $('tablaCierres').innerHTML = cierres.map((c) => `<tr>
           <td>${c.id}</td><td>${fechaHora(c.fecha)}</td><td>${esc(c.usuario)}</td>
-          <td>${esc(textoDetalle(c.detalle))}</td><td>${pesos(c.total_sistema)}</td><td>${pesos(c.efectivo_contado)}</td>
+          <td>${esc(textoDetalle(c.detalle))}${c.mens_pagos ? `<br><span class="nota">+ ${c.mens_pagos} pago(s) mensualidad ${pesos(c.mens_valor)}</span>` : ''}</td><td>${pesos(c.total_sistema)}</td><td>${pesos(c.efectivo_contado)}</td>
           <td style="color:${colorDif(c.diferencia)};font-weight:700">${pesos(c.diferencia)}</td>
           <td>${esc(c.observaciones)}${c.nota_admin ? `<br><span class="nota">Admin: ${esc(c.nota_admin)}</span>` : ''}</td>
           <td>${c.revisado ? '<span class="chip dentro">Revisado</span>' : '<span class="chip fuera">Pendiente</span>'}</td>
@@ -340,9 +363,10 @@
 
     async function verDetalle(id) {
       try {
-        const { registros } = await api(`/api/admin/cierres/${id}/registros`);
-        $('tituloDetalle').textContent = `Cobros del cierre N° ${id} (${registros.length})`;
-        $('tablaDetCierre').innerHTML = registros.map((x) => `<tr><td>${x.id}</td><td><b>${esc(x.placa)}</b></td><td>${esc(nombreTipo(x.tipo))}</td><td>${fechaHora(x.entrada)}</td><td>${fechaHora(x.salida)}</td><td>${duracion(x.minutos || 0)}</td><td>${pesos(x.valor)}</td></tr>`).join('');
+        const { registros, pagos } = await api(`/api/admin/cierres/${id}/registros`);
+        $('tituloDetalle').textContent = `Dinero del cierre N° ${id} (${registros.length} cobros, ${pagos.length} pagos de mensualidad)`;
+        $('tablaDetCierre').innerHTML = registros.map((x) => `<tr><td>${x.id}</td><td><b>${esc(x.placa)}</b></td><td>${esc(nombreTipo(x.tipo))}</td><td>${fechaHora(x.entrada)}</td><td>${fechaHora(x.salida)}</td><td>${duracion(x.minutos || 0)}</td><td>${pesos(x.valor)}</td></tr>`).join('')
+          + pagos.map((p) => `<tr><td>M-${p.id}</td><td><b>${esc(p.placa)}</b></td><td>💵 Mensualidad</td><td colspan="2">${fechaHora(p.fecha)} · ${esc(p.propietario)}</td><td>hasta ${p.hasta}</td><td>${pesos(p.valor)}</td></tr>`).join('');
         $('cardDetalle').style.display = '';
         $('cardDetalle').scrollIntoView({ behavior: 'smooth' });
       } catch (e) { alert(e.message); }
@@ -382,19 +406,19 @@
       }).join('') || '<tr><td colspan="8" class="nota">Aún no hay mensualidades</td></tr>';
     }
     $('buscarMens').addEventListener('input', pintarMens);
+    $('mTipo').addEventListener('change', () => { if (!editando) $('mValor').value = valorMesDe($('mTipo').value) || ''; });
 
-    function sumarMes(f) { const d = new Date(f + 'T12:00:00Z'); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 10); }
     function limpiarForm() {
       editando = null; $('formMens').reset(); $('tituloMens').textContent = 'Nueva mensualidad';
       $('mIni').value = hoyStr(); $('mFin').value = sumarMes(hoyStr());
-    }
-    function datosDe(m) {
-      return { placa: m.placa, tipo: m.tipo, propietario: m.propietario, telefono: m.telefono, valor: m.valor, fecha_inicio: m.fecha_inicio, fecha_fin: m.fecha_fin, activo: m.activo };
+      $('mPagoBox').style.display = '';
+      if ($('mTipo').value) $('mValor').value = valorMesDe($('mTipo').value) || '';
     }
 
     function editar(id) {
       const m = mensualidades.find((x) => x.id === id); if (!m) return;
       editando = id; $('tituloMens').textContent = 'Editando ' + m.placa;
+      $('mPagoBox').style.display = 'none'; // al editar no se cobra (para cobrar use +1 mes)
       $('mPlaca').value = m.placa; $('mTipo').value = m.tipo; $('mProp').value = m.propietario; $('mTel').value = m.telefono;
       $('mValor').value = m.valor; $('mIni').value = m.fecha_inicio; $('mFin').value = m.fecha_fin; $('mActivo').value = m.activo ? '1' : '0';
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -404,9 +428,16 @@
       const m = mensualidades.find((x) => x.id === id); if (!m) return;
       const base = m.fecha_fin >= hoyStr() ? m.fecha_fin : hoyStr();
       const nueva = sumarMes(base);
-      if (!confirm(`¿Renovar ${m.placa} hasta ${nueva}?`)) return;
-      try { await api(`/api/admin/mensualidades/${id}`, { method: 'PUT', body: { ...datosDe(m), fecha_fin: nueva, activo: true } }); aviso($('msgMens'), `${m.placa} renovada hasta ${nueva} ✔`); cargarMensualidades(); }
-      catch (e) { aviso($('msgMens'), e.message, 'error'); }
+      const txt = prompt(`Renovar ${m.placa} hasta ${nueva}.\n\nValor recibido:`, m.valor || valorMesDe(m.tipo) || '');
+      if (txt === null) return;
+      const valor = soloNumero(txt);
+      if (!valor) return aviso($('msgMens'), 'Escriba el valor recibido', 'error');
+      const enCaja = confirm(`¿El dinero (${pesos(valor)}) quedó en la CAJA?\n\nAceptar = Sí, se suma al cierre de caja\nCancelar = No, lo recibió el administrador`);
+      try {
+        const r = await api(`/api/mensualidades/${id}/pago`, { method: 'POST', body: { valor, en_caja: enCaja } });
+        aviso($('msgMens'), `${m.placa} renovada hasta ${r.mensualidad.fecha_fin}. Pago ${pesos(valor)} (${enCaja ? 'en caja' : 'recibido por el administrador'}) ✔`);
+        cargarMensualidades();
+      } catch (e) { aviso($('msgMens'), e.message, 'error'); }
     }
 
     async function eliminar(id) {
@@ -419,7 +450,7 @@
     $('formMens').addEventListener('submit', async (e) => {
       e.preventDefault();
       const body = { placa: $('mPlaca').value, tipo: $('mTipo').value, propietario: $('mProp').value, telefono: $('mTel').value,
-        valor: $('mValor').value, fecha_inicio: $('mIni').value, fecha_fin: $('mFin').value, activo: $('mActivo').value === '1' };
+        valor: $('mValor').value, fecha_inicio: $('mIni').value, fecha_fin: $('mFin').value, activo: $('mActivo').value === '1', pago: $('mPago').value };
       try {
         if (editando) await api(`/api/admin/mensualidades/${editando}`, { method: 'PUT', body });
         else await api('/api/admin/mensualidades', { method: 'POST', body });
@@ -452,7 +483,7 @@
     });
     limpiarForm();
     $('ciDesde').value = sumarDias(hoyStr(), -30); $('ciHasta').value = hoyStr();
-    cargarConfig().then(() => rango('hoy')).catch((e) => alert(e.message));
+    cargarConfig().then(() => { limpiarForm(); rango('hoy'); }).catch((e) => alert(e.message));
     contarPendientes();
   </script>
 </body>

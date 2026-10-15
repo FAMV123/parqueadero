@@ -28,6 +28,12 @@ const fechaBogota = (d = new Date()) => new Date(d).toLocaleDateString('en-CA', 
 const inicioDia = (f) => new Date(`${f}T00:00:00-05:00`).toISOString();
 const finDia = (f) => new Date(new Date(`${f}T00:00:00-05:00`).getTime() + 86400000).toISOString();
 const esFecha = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f || '');
+// "2026-01-31" + 1 mes = "2026-02-28" (si el mes siguiente es más corto, usa su último día)
+function sumarMes(f) {
+  const [y, m, d] = f.split('-').map(Number);
+  const ultimo = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, Math.min(d, ultimo))).toISOString().slice(0, 10);
+}
 
 const limpiarPlaca = (p) => String(p || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
 function detectarTipo(placa) {
@@ -100,6 +106,12 @@ app.post('/api/login', (req, res) => {
   res.json({ token, rol });
 });
 
+// Nombre del parqueadero para la pantalla de ingreso (no requiere sesión)
+app.get('/api/marca', wrap(async (req, res) => {
+  const { data } = await db.from('configuracion').select('nombre').eq('id', 1).maybeSingle();
+  res.json({ nombre: data?.nombre || 'Parqueadero' });
+}));
+
 // Para UptimeRobot: mantiene despierto Render y también Supabase
 app.get('/health', wrap(async (req, res) => {
   const { error } = await db.from('configuracion').select('id').limit(1);
@@ -171,15 +183,97 @@ app.get('/api/dentro', auth(), wrap(async (req, res) => {
   res.json({ registros: data });
 }));
 
-// ---------- Mensualidades (caja) ----------
+// ---------- Mensualidades ----------
+async function datosMensualidad(b) {
+  const placa = limpiarPlaca(b.placa);
+  if (placa.length < 2) throw errorUsuario('Escriba una placa válida');
+  const { data: tarifa } = await db.from('tarifas').select('tipo').eq('tipo', String(b.tipo)).maybeSingle();
+  if (!tarifa) throw errorUsuario('Seleccione el tipo de vehículo');
+  if (!esFecha(b.fecha_fin)) throw errorUsuario('Escriba la fecha de vencimiento');
+  return {
+    placa,
+    tipo: tarifa.tipo,
+    propietario: String(b.propietario || '').trim().slice(0, 80),
+    telefono: String(b.telefono || '').trim().slice(0, 40),
+    valor: entero(b.valor),
+    fecha_inicio: esFecha(b.fecha_inicio) ? b.fecha_inicio : fechaBogota(),
+    fecha_fin: b.fecha_fin,
+    activo: b.activo !== false,
+  };
+}
+
+// Guarda el dinero recibido por una mensualidad (nueva o renovación)
+async function registrarPago({ m, valor, usuario, enCaja, desde, hasta, clase }) {
+  const { data, error } = await db.from('pagos_mensualidad').insert({
+    mensualidad_id: m.id, placa: m.placa, tipo: m.tipo, propietario: m.propietario || '',
+    valor, desde, hasta, usuario, en_caja: enCaja, clase,
+  }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+// Crea la mensualidad y, si se indica, su primer pago. Si el pago falla, no deja la mensualidad a medias.
+async function crearMensualidad(datos, pago) {
+  const { data: existe } = await db.from('mensualidades').select('id').eq('placa', datos.placa).maybeSingle();
+  if (existe) throw errorUsuario(`${datos.placa} ya tiene mensualidad. Use el botón Renovar.`, 409);
+  const { data: m, error } = await db.from('mensualidades').insert(datos).select().single();
+  if (error) throw error;
+  if (!pago) return { mensualidad: m, pago: null };
+  try {
+    const p = await registrarPago({ m, ...pago, desde: m.fecha_inicio, hasta: m.fecha_fin, clase: 'nueva' });
+    return { mensualidad: m, pago: p };
+  } catch (e) {
+    await db.from('mensualidades').delete().eq('id', m.id);
+    throw e;
+  }
+}
+
 app.get('/api/mensualidades', auth(), wrap(async (req, res) => {
   const hoy = fechaBogota();
-  const [{ data: lista, error: e1 }, { data: movimientos, error: e2 }] = await Promise.all([
+  const [{ data: lista, error: e1 }, { data: movimientos, error: e2 }, { data: pagosHoy, error: e3 }] = await Promise.all([
     db.from('mensualidades').select('*').order('placa'),
     db.from('movimientos_mensualidad').select('*').gte('fecha', inicioDia(hoy)).lt('fecha', finDia(hoy)).order('fecha', { ascending: false }),
+    db.from('pagos_mensualidad').select('*').gte('fecha', inicioDia(hoy)).lt('fecha', finDia(hoy)).order('fecha', { ascending: false }),
   ]);
-  if (e1 || e2) throw e1 || e2;
-  res.json({ mensualidades: lista.map((m) => ({ ...m, vencida: m.fecha_fin < hoy })), movimientosHoy: movimientos });
+  if (e1 || e2 || e3) throw e1 || e2 || e3;
+  res.json({ mensualidades: lista.map((m) => ({ ...m, vencida: m.fecha_fin < hoy })), movimientosHoy: movimientos, pagosHoy });
+}));
+
+// La caja crea una mensualidad nueva: queda vigente 1 mes y el pago entra a la caja
+app.post('/api/mensualidades', auth(), wrap(async (req, res) => {
+  const hoy = fechaBogota();
+  const datos = await datosMensualidad({ ...req.body, fecha_inicio: hoy, fecha_fin: sumarMes(hoy), activo: true });
+  if (datos.valor <= 0) throw errorUsuario('Escriba el valor recibido');
+  const r = await crearMensualidad(datos, { valor: datos.valor, usuario: req.usuario.usuario, enCaja: true });
+  res.json(r);
+}));
+
+// Renovar: suma 1 mes (desde el vencimiento, o desde hoy si ya estaba vencida) y registra el pago
+app.post('/api/mensualidades/:id/pago', auth(), wrap(async (req, res) => {
+  const { data: m } = await db.from('mensualidades').select('*').eq('id', Number(req.params.id)).maybeSingle();
+  if (!m) return res.status(404).json({ error: 'Mensualidad no encontrada' });
+  const valor = entero(req.body.valor);
+  if (valor <= 0) throw errorUsuario('Escriba el valor recibido');
+
+  const hoy = fechaBogota();
+  const base = m.fecha_fin >= hoy ? m.fecha_fin : hoy;
+  const nuevaFin = sumarMes(base);
+  // Solo el administrador puede indicar que el dinero NO quedó en la caja
+  const enCaja = req.usuario.rol === 'admin' ? req.body.en_caja !== false : true;
+
+  // Se actualiza solo si nadie la renovó al mismo tiempo (evita cobrar dos veces por doble clic)
+  const { data: act, error } = await db.from('mensualidades')
+    .update({ fecha_fin: nuevaFin, activo: true }).eq('id', m.id).eq('fecha_fin', m.fecha_fin).select();
+  if (error) throw error;
+  if (!act.length) throw errorUsuario(`${m.placa} acaba de ser renovada. Actualice la lista.`, 409);
+
+  try {
+    const pago = await registrarPago({ m, valor, usuario: req.usuario.usuario, enCaja, desde: base, hasta: nuevaFin, clase: 'renovacion' });
+    res.json({ mensualidad: act[0], pago });
+  } catch (e) {
+    await db.from('mensualidades').update({ fecha_fin: m.fecha_fin }).eq('id', m.id);
+    throw e;
+  }
 }));
 
 app.post('/api/mensualidades/:id/movimiento', auth(), wrap(async (req, res) => {
@@ -192,7 +286,7 @@ app.post('/api/mensualidades/:id/movimiento', auth(), wrap(async (req, res) => {
   if (entra && m.dentro) return res.status(409).json({ error: `${m.placa} ya está dentro. Primero debe marcar la salida.` });
   if (!entra && !m.dentro) return res.status(409).json({ error: `${m.placa} no ha entrado. No se puede marcar salida.` });
   if (entra && !m.activo) return res.status(409).json({ error: `La mensualidad de ${m.placa} está inactiva.` });
-  if (entra && m.fecha_fin < fechaBogota()) return res.status(409).json({ error: `La mensualidad de ${m.placa} venció el ${m.fecha_fin}. Regístrela como visitante o renuévela.` });
+  if (entra && m.fecha_fin < fechaBogota()) return res.status(409).json({ error: `La mensualidad de ${m.placa} venció el ${m.fecha_fin}. Renuévela o regístrela como visitante.` });
 
   // Cambia el estado solo si sigue como estaba (evita doble clic o dos cajas al tiempo)
   const { data: cambio, error: e1 } = await db.from('mensualidades')
@@ -206,20 +300,29 @@ app.post('/api/mensualidades/:id/movimiento', auth(), wrap(async (req, res) => {
 }));
 
 // ---------- Cierre de caja ----------
-// "Pendiente" = cobros ya hechos que todavía no se han entregado en un cierre
+// "Pendiente" = dinero ya recibido que todavía no se ha entregado en un cierre
 const pendientesCierre = () => traerTodo(() => db.from('registros')
   .select('id,placa,tipo,valor,salida').eq('estado', 'salio').is('cierre_id', null).order('id'));
+const pagosPendientes = () => traerTodo(() => db.from('pagos_mensualidad')
+  .select('id,placa,valor,fecha').eq('en_caja', true).is('cierre_id', null).order('id'));
 
-// Agrupa cobros por tipo: { detalle: { moto: { n, valor } }, cantidad, total_sistema, desde, hasta }
-function resumirCobros(regs) {
-  const r = { detalle: {}, cantidad: 0, total_sistema: 0, desde: null, hasta: null };
+// Agrupa el dinero: cobros por tipo + pagos de mensualidades
+function resumenCaja(regs, pagos) {
+  const r = { detalle: {}, cantidad: 0, total_sistema: 0, mens_pagos: 0, mens_valor: 0, desde: null, hasta: null };
+  const fechas = (f) => {
+    if (!r.desde || new Date(f) < new Date(r.desde)) r.desde = f;
+    if (!r.hasta || new Date(f) > new Date(r.hasta)) r.hasta = f;
+  };
   for (const x of regs) {
     const v = x.valor || 0;
     const d = (r.detalle[x.tipo] ??= { n: 0, valor: 0 });
     d.n++; d.valor += v;
     r.cantidad++; r.total_sistema += v;
-    if (!r.desde || new Date(x.salida) < new Date(r.desde)) r.desde = x.salida;
-    if (!r.hasta || new Date(x.salida) > new Date(r.hasta)) r.hasta = x.salida;
+    fechas(x.salida);
+  }
+  for (const p of pagos) {
+    r.mens_pagos++; r.mens_valor += p.valor || 0; r.total_sistema += p.valor || 0;
+    fechas(p.fecha);
   }
   return r;
 }
@@ -234,20 +337,21 @@ async function entradasMensualidadHoy() {
 
 app.get('/api/caja/resumen', auth(), wrap(async (req, res) => {
   const hoy = fechaBogota();
-  const [regs, mens, { data: cierresHoy, error }] = await Promise.all([
+  const [regs, pagos, mens, { data: cierresHoy, error }] = await Promise.all([
     pendientesCierre(),
+    pagosPendientes(),
     entradasMensualidadHoy(),
     db.from('cierres_caja').select('*').gte('fecha', inicioDia(hoy)).lt('fecha', finDia(hoy)).order('fecha', { ascending: false }),
   ]);
   if (error) throw error;
-  res.json({ pendiente: { ...resumirCobros(regs), mens_entradas: mens }, cierresHoy });
+  res.json({ pendiente: { ...resumenCaja(regs, pagos), mens_entradas: mens }, cierresHoy });
 }));
 
 app.post('/api/caja/cierre', auth(), wrap(async (req, res) => {
-  const regs = await pendientesCierre();
-  if (!regs.length) return res.status(400).json({ error: 'No hay cobros pendientes por cerrar' });
+  const [regs, pagos] = await Promise.all([pendientesCierre(), pagosPendientes()]);
+  if (!regs.length && !pagos.length) return res.status(400).json({ error: 'No hay dinero pendiente por cerrar' });
 
-  const r = resumirCobros(regs);
+  const r = resumenCaja(regs, pagos);
   const contado = entero(req.body.efectivo_contado);
   const { data: cierre, error } = await db.from('cierres_caja').insert({
     ...r,
@@ -259,11 +363,13 @@ app.post('/api/caja/cierre', auth(), wrap(async (req, res) => {
   }).select().single();
   if (error) throw error;
 
-  // Amarra exactamente los cobros contados a este cierre (de a 200 para no hacer URLs largas)
-  const ids = regs.map((x) => x.id);
-  for (let i = 0; i < ids.length; i += 200) {
-    const { error: e } = await db.from('registros').update({ cierre_id: cierre.id }).in('id', ids.slice(i, i + 200));
-    if (e) throw e;
+  // Amarra exactamente el dinero contado a este cierre (de a 200 para no hacer URLs largas)
+  for (const [tabla, filas] of [['registros', regs], ['pagos_mensualidad', pagos]]) {
+    const ids = filas.map((x) => x.id);
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error: e } = await db.from(tabla).update({ cierre_id: cierre.id }).in('id', ids.slice(i, i + 200));
+      if (e) throw e;
+    }
   }
   res.json({ cierre });
 }));
@@ -275,6 +381,7 @@ function datosTarifa(t) {
     valor_hora: entero(t.valor_hora),
     minutos_gracia: entero(t.minutos_gracia),
     tope_dia: entero(t.tope_dia),
+    valor_mes: entero(t.valor_mes),
     activo: t.activo !== false,
     orden: entero(t.orden),
     actualizado: new Date().toISOString(),
@@ -322,28 +429,12 @@ app.put('/api/admin/config', auth('admin'), wrap(async (req, res) => {
 }));
 
 // ---------- Administrador: mensualidades ----------
-async function datosMensualidad(b) {
-  const placa = limpiarPlaca(b.placa);
-  if (placa.length < 2) throw errorUsuario('Escriba una placa válida');
-  const { data: tarifa } = await db.from('tarifas').select('tipo').eq('tipo', String(b.tipo)).maybeSingle();
-  if (!tarifa) throw errorUsuario('Seleccione el tipo de vehículo');
-  if (!esFecha(b.fecha_fin)) throw errorUsuario('Escriba la fecha de vencimiento');
-  return {
-    placa,
-    tipo: tarifa.tipo,
-    propietario: String(b.propietario || '').slice(0, 80),
-    telefono: String(b.telefono || '').slice(0, 40),
-    valor: entero(b.valor),
-    fecha_inicio: esFecha(b.fecha_inicio) ? b.fecha_inicio : fechaBogota(),
-    fecha_fin: b.fecha_fin,
-    activo: b.activo !== false,
-  };
-}
-
+// pago: 'caja' (el dinero quedó en la caja), 'admin' (lo recibió el administrador) o 'no' (sin pago)
 app.post('/api/admin/mensualidades', auth('admin'), wrap(async (req, res) => {
-  const { data, error } = await db.from('mensualidades').insert(await datosMensualidad(req.body)).select().single();
-  if (error) throw error;
-  res.json({ mensualidad: data });
+  const datos = await datosMensualidad(req.body);
+  const forma = ['caja', 'admin', 'no'].includes(req.body.pago) ? req.body.pago : 'caja';
+  const pago = forma !== 'no' && datos.valor > 0 ? { valor: datos.valor, usuario: req.usuario.usuario, enCaja: forma === 'caja' } : null;
+  res.json(await crearMensualidad(datos, pago));
 }));
 
 app.put('/api/admin/mensualidades/:id', auth('admin'), wrap(async (req, res) => {
@@ -370,9 +461,12 @@ app.get('/api/admin/cierres', auth('admin'), wrap(async (req, res) => {
 }));
 
 app.get('/api/admin/cierres/:id/registros', auth('admin'), wrap(async (req, res) => {
-  const registros = await traerTodo(() => db.from('registros').select('id,placa,tipo,entrada,salida,minutos,valor')
-    .eq('cierre_id', Number(req.params.id)).order('id'));
-  res.json({ registros });
+  const id = Number(req.params.id);
+  const [registros, pagos] = await Promise.all([
+    traerTodo(() => db.from('registros').select('id,placa,tipo,entrada,salida,minutos,valor').eq('cierre_id', id).order('id')),
+    traerTodo(() => db.from('pagos_mensualidad').select('id,placa,tipo,propietario,valor,fecha,hasta').eq('cierre_id', id).order('id')),
+  ]);
+  res.json({ registros, pagos });
 }));
 
 app.put('/api/admin/cierres/:id', auth('admin'), wrap(async (req, res) => {
@@ -392,7 +486,7 @@ app.get('/api/admin/reporte', auth('admin'), wrap(async (req, res) => {
   const desde = esFecha(req.query.desde) ? req.query.desde : hoy;
   const hasta = esFecha(req.query.hasta) ? req.query.hasta : hoy;
 
-  const [registros, movimientos, resumen] = await Promise.all([
+  const [registros, movimientos, resumen, pagos] = await Promise.all([
     traerTodo(() => db.from('registros').select('id,placa,tipo,valor,minutos,entrada,salida')
       .eq('estado', 'salio').gte('salida', inicioDia(desde)).lt('salida', finDia(hasta)).order('id')),
     traerTodo(() => db.from('movimientos_mensualidad').select('id,placa,tipo,movimiento,fecha')
@@ -400,38 +494,44 @@ app.get('/api/admin/reporte', auth('admin'), wrap(async (req, res) => {
     // Días viejos cuyo detalle ya se limpió: sus totales están en resumen_diario
     traerTodo(() => db.from('resumen_diario').select('fecha,tipo,cantidad,total')
       .gte('fecha', desde).lte('fecha', hasta).order('fecha').order('tipo')),
+    traerTodo(() => db.from('pagos_mensualidad').select('id,placa,tipo,propietario,valor,fecha,hasta,en_caja,clase,usuario')
+      .gte('fecha', inicioDia(desde)).lt('fecha', finDia(hasta)).order('id')),
   ]);
 
-  const nuevo = (fecha) => ({ fecha, porTipo: {}, cantidad: 0, total: 0, mensPorTipo: {}, mensEntradas: 0, mensSalidas: 0, resumido: false });
+  const nuevo = (fecha) => ({ fecha, porTipo: {}, cantidad: 0, total: 0, mensPorTipo: {}, mensEntradas: 0, mensSalidas: 0, mensPagos: 0, mensValor: 0, resumido: false });
   const dias = {};
   const totales = nuevo(null);
+  const dia = (f) => (dias[f] ??= nuevo(f));
 
   for (const s of resumen) {
-    const dia = (dias[s.fecha] ??= nuevo(s.fecha));
-    dia.resumido = true;
-    for (const t of [dia, totales]) {
+    const d0 = dia(s.fecha);
+    d0.resumido = true;
+    for (const t of [d0, totales]) {
       const d = (t.porTipo[s.tipo] ??= { n: 0, valor: 0 });
       d.n += s.cantidad; d.valor += s.total; t.cantidad += s.cantidad; t.total += s.total;
     }
   }
-
   for (const r of registros) {
     const v = r.valor || 0;
-    for (const t of [(dias[fechaBogota(r.salida)] ??= nuevo(fechaBogota(r.salida))), totales]) {
+    for (const t of [dia(fechaBogota(r.salida)), totales]) {
       const d = (t.porTipo[r.tipo] ??= { n: 0, valor: 0 });
       d.n++; d.valor += v; t.cantidad++; t.total += v;
     }
   }
   for (const m of movimientos) {
-    for (const t of [(dias[fechaBogota(m.fecha)] ??= nuevo(fechaBogota(m.fecha))), totales]) {
+    for (const t of [dia(fechaBogota(m.fecha)), totales]) {
       if (m.movimiento === 'salida') { t.mensSalidas++; continue; }
       t.mensEntradas++;
       t.mensPorTipo[m.tipo] = (t.mensPorTipo[m.tipo] || 0) + 1;
     }
   }
+  for (const p of pagos) {
+    const v = p.valor || 0;
+    for (const t of [dia(fechaBogota(p.fecha)), totales]) { t.mensPagos++; t.mensValor += v; t.total += v; }
+  }
 
   const lista = Object.values(dias).sort((a, b) => a.fecha.localeCompare(b.fecha));
-  res.json({ desde, hasta, dias: lista, totales, registros });
+  res.json({ desde, hasta, dias: lista, totales, registros, pagos });
 }));
 
 // ---------- Administrador: estado del sistema (espacio de la base de datos) ----------

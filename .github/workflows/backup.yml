@@ -31,6 +31,12 @@ jobs:
             *) echo "::warning::La URI no parece ser del Session pooler. Si falla la conexión, use la de Session pooler." ;;
           esac
 
+      - name: Calcular la fecha de hoy (hora Colombia)
+        id: fecha
+        run: |
+          echo "hoy=$(TZ=America/Bogota date +%F)" >> "$GITHUB_OUTPUT"
+          echo "dia=$(TZ=America/Bogota date +%d)" >> "$GITHUB_OUTPUT"
+
       - name: Descargar el repositorio
         uses: actions/checkout@v5
 
@@ -44,10 +50,9 @@ jobs:
       - name: Sacar la copia de la base de datos
         env:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          FECHA: ${{ steps.fecha.outputs.hoy }}
         run: |
           set -euo pipefail
-          FECHA=$(TZ=America/Bogota date +%F)
-          echo "FECHA=$FECHA" >> "$GITHUB_ENV"
           mkdir -p copia
           /usr/lib/postgresql/17/bin/pg_dump "$DB_URL" --schema=public --no-owner --no-privileges \
             | grep -v '^CREATE SCHEMA public;$' > "copia/parqueadero-$FECHA.sql"
@@ -60,14 +65,18 @@ jobs:
       - name: Guardar copia diaria (se conserva 90 días)
         uses: actions/upload-artifact@v5
         with:
-          name: copia-${{ env.FECHA }}
+          name: copia-${{ steps.fecha.outputs.hoy }}
           path: copia/*.sql.gz
           retention-days: 90
 
       - name: Guardar copia mensual en el repositorio (el día 1 de cada mes)
+        env:
+          FECHA: ${{ steps.fecha.outputs.hoy }}
+          DIA: ${{ steps.fecha.outputs.dia }}
+          EVENTO: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ "$(TZ=America/Bogota date +%d)" = "01" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$DIA" = "01" ] || [ "$EVENTO" = "workflow_dispatch" ]; then
             mkdir -p backups/mensual
             cp copia/*.sql.gz backups/mensual/
             git config user.name  "copia-automatica"

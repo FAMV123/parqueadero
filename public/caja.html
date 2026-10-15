@@ -62,9 +62,37 @@
         <div class="kpi"><div class="t">Entradas hoy</div><div class="v" id="kEntradas">0</div><div class="s" id="kEntradasS"></div></div>
         <div class="kpi"><div class="t">Salidas hoy</div><div class="v" id="kSalidas">0</div></div>
         <div class="kpi"><div class="t">Dentro ahora</div><div class="v" id="kDentro">0</div></div>
+        <div class="kpi"><div class="t">💵 Pagos recibidos hoy</div><div class="v" id="kPagos">$0</div><div class="s" id="kPagosS"></div></div>
       </div>
+
       <div class="card">
-        <input id="buscarMens" placeholder="Buscar placa o propietario..." autocomplete="off">
+        <div class="acciones" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Nueva mensualidad</h2>
+          <button class="btn verde" id="btnNuevaMens" type="button">+ Nueva mensualidad</button>
+        </div>
+        <form id="formNuevaMens" style="display:none;margin-top:12px">
+          <div class="fila">
+            <div><label>Placa</label><input id="nmPlaca" maxlength="10" autocomplete="off" required></div>
+            <div><label>Tipo</label><select id="nmTipo"></select></div>
+            <div><label>Propietario</label><input id="nmProp" autocomplete="off"></div>
+            <div><label>Teléfono</label><input id="nmTel" autocomplete="off"></div>
+          </div>
+          <div class="fila">
+            <div><label>Valor recibido (1 mes)</label><input id="nmValor" type="number" min="0" required></div>
+            <div><label>Queda válida hasta</label><div id="nmHasta" style="font-size:20px;font-weight:700;padding:8px 0">—</div></div>
+          </div>
+          <div class="acciones" style="margin-top:12px">
+            <button class="btn verde" type="submit">Guardar y cobrar</button>
+            <button class="btn gris" type="button" id="btnCancelarMens">Cancelar</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="fila">
+          <div style="flex:3"><input id="buscarMens" placeholder="Buscar placa o propietario..." autocomplete="off"></div>
+          <div><label style="margin:0"><input type="checkbox" id="chkReciboMens" checked style="width:auto"> Imprimir recibo de pago</label></div>
+        </div>
         <div id="msgMens" class="aviso"></div>
         <div class="tabla">
           <table>
@@ -73,13 +101,25 @@
           </table>
         </div>
       </div>
-      <div class="card">
-        <h2>Movimientos de hoy</h2>
-        <div class="tabla">
-          <table>
-            <thead><tr><th>Hora</th><th>Placa</th><th>Tipo</th><th>Movimiento</th></tr></thead>
-            <tbody id="tablaMovs"></tbody>
-          </table>
+
+      <div class="grid">
+        <div class="card">
+          <h2>Entradas y salidas de hoy</h2>
+          <div class="tabla">
+            <table>
+              <thead><tr><th>Hora</th><th>Placa</th><th>Tipo</th><th>Movimiento</th></tr></thead>
+              <tbody id="tablaMovs"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Pagos de hoy</h2>
+          <div class="tabla">
+            <table>
+              <thead><tr><th>Hora</th><th>Placa</th><th>Hasta</th><th>Valor</th><th></th></tr></thead>
+              <tbody id="tablaPagos"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
@@ -89,20 +129,21 @@
       <div class="kpis">
         <div class="kpi"><div class="t">Total en caja (sin cerrar)</div><div class="v" id="cTotal">$0</div><div class="s" id="cDesde"></div></div>
         <div class="kpi"><div class="t">Vehículos cobrados</div><div class="v" id="cCant">0</div><div class="s" id="cDetalle"></div></div>
+        <div class="kpi"><div class="t">💵 Pagos de mensualidad</div><div class="v" id="cMensPagos">0</div><div class="s" id="cMensValor">$0</div></div>
         <div class="kpi"><div class="t">Mensualidades hoy</div><div class="v" id="cMens">0</div><div class="s">entradas</div></div>
       </div>
       <div class="card">
-        <h2>Cuadre por tipo</h2>
+        <h2>Cuadre</h2>
         <div class="tabla">
           <table>
-            <thead><tr><th>Tipo</th><th>Cantidad</th><th>Valor</th></tr></thead>
+            <thead><tr><th>Concepto</th><th>Cantidad</th><th>Valor</th></tr></thead>
             <tbody id="tablaCuadre"></tbody>
           </table>
         </div>
       </div>
       <div class="card">
         <h2>Cerrar caja</h2>
-        <p class="nota">Cuente el efectivo que hay en la caja y escríbalo. El sistema lo compara con lo cobrado y guarda la diferencia para el administrador.</p>
+        <p class="nota">Cuente el efectivo que hay en la caja y escríbalo. El sistema lo compara con lo cobrado (parqueo + mensualidades) y guarda la diferencia para el administrador.</p>
         <div class="fila">
           <div><label>Efectivo contado</label><input id="cContado" type="number" min="0" placeholder="0"></div>
           <div><label>Diferencia</label><div id="cDif" style="font-size:24px;font-weight:800;padding:6px 0">$0</div></div>
@@ -131,7 +172,7 @@
 
     let config = { nombre: 'PARQUEADERO', ancho_papel: '58', mensaje: '' };
     let tipoElegido = null;
-    let mensualidades = [];
+    let mensualidades = [], pagosHoy = [];
     const $ = (id) => document.getElementById(id);
     const colorDif = (d) => (d === 0 ? 'var(--verde)' : d < 0 ? 'var(--rojo)' : 'var(--amarillo)');
 
@@ -140,6 +181,7 @@
         const r = await api('/api/config');
         config = r.config; TIPOS = r.tarifas;
         pintarSelector();
+        $('nmTipo').innerHTML = tiposActivos().map((t) => `<option value="${esc(t.tipo)}">${esc(t.nombre)}</option>`).join('');
       } catch (e) { aviso($('msgEntrada'), e.message, 'error'); }
     }
 
@@ -235,7 +277,7 @@
     function darSalida(placa) { $('placaSalida').value = placa; consultarSalida(placa); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     function reimprimir(id) { const r = dentro.find((x) => x.id === id); if (r) imprimir(reciboEntrada(config, r), config.ancho_papel); }
 
-    // ---------- Mensualidades ----------
+    // ---------- Mensualidades: entradas y salidas ----------
     // Devuelve true si se guardó; si no, muestra el error en "dondeAvisar"
     async function moverMensualidad(id, movimiento, dondeAvisar = $('msgMens')) {
       try {
@@ -254,7 +296,7 @@
     async function cargarMensualidades() {
       try {
         const r = await api('/api/mensualidades');
-        mensualidades = r.mensualidades;
+        mensualidades = r.mensualidades; pagosHoy = r.pagosHoy.filter((p) => p.en_caja); // solo el dinero que entró a esta caja
         const movs = r.movimientosHoy;
         const entradas = movs.filter((m) => m.movimiento === 'entrada');
         const porTipo = {};
@@ -263,8 +305,13 @@
         $('kEntradasS').textContent = Object.entries(porTipo).map(([t, n]) => `${n} ${nombreTipo(t)}`).join(' · ');
         $('kSalidas').textContent = movs.filter((m) => m.movimiento === 'salida').length;
         $('kDentro').textContent = mensualidades.filter((m) => m.dentro).length;
+        $('kPagos').textContent = pesos(pagosHoy.reduce((t, p) => t + p.valor, 0));
+        $('kPagosS').textContent = `${pagosHoy.length} pago(s)`;
         $('tablaMovs').innerHTML = movs.map((m) => `<tr><td>${hora(m.fecha)}</td><td><b>${esc(m.placa)}</b></td><td>${esc(nombreTipo(m.tipo))}</td><td>${m.movimiento === 'entrada' ? '⬇️ Entró' : '⬆️ Salió'}</td></tr>`).join('')
           || '<tr><td colspan="4" class="nota">Sin movimientos hoy</td></tr>';
+        $('tablaPagos').innerHTML = pagosHoy.map((p) => `<tr><td>${hora(p.fecha)}</td><td><b>${esc(p.placa)}</b></td><td>${p.hasta}</td><td>${pesos(p.valor)}</td>
+          <td><button class="btn chico gris" onclick="reimprimirPago(${p.id})">Reimprimir</button></td></tr>`).join('')
+          || '<tr><td colspan="5" class="nota">Sin pagos hoy</td></tr>';
         pintarMensualidades();
       } catch (e) { aviso($('msgMens'), e.message, 'error'); }
     }
@@ -276,16 +323,67 @@
         const estado = (m.dentro ? '<span class="chip dentro">Dentro</span>' : '<span class="chip fuera">Fuera</span>')
           + (m.vencida ? ' <span class="chip vencida">Vencida</span>' : '');
         // Solo se muestra el botón que tiene sentido: si está dentro -> Salió; si está fuera -> Entró
-        const boton = m.dentro
+        const mover = m.dentro
           ? `<button class="btn chico rojo" onclick="moverMensualidad(${m.id},'salida')">⬆️ Salió</button>`
-          : m.vencida
-            ? '<span class="nota">Vencida: cobrar como visitante</span>'
-            : `<button class="btn chico verde" onclick="moverMensualidad(${m.id},'entrada')">⬇️ Entró</button>`;
+          : m.vencida ? '' : `<button class="btn chico verde" onclick="moverMensualidad(${m.id},'entrada')">⬇️ Entró</button>`;
+        const renovar = `<button class="btn chico" onclick="renovarMens(${m.id})">💵 Renovar</button>`;
         return `<tr><td><b>${esc(m.placa)}</b></td><td>${esc(nombreTipo(m.tipo))}</td><td>${esc(m.propietario)}</td><td>${m.fecha_fin}</td><td>${estado}</td>
-          <td class="acciones">${boton}</td></tr>`;
-      }).join('') || '<tr><td colspan="6" class="nota">No hay mensualidades (el administrador las crea en su panel)</td></tr>';
+          <td class="acciones">${mover}${renovar}</td></tr>`;
+      }).join('') || '<tr><td colspan="6" class="nota">No hay mensualidades. Cree una con "+ Nueva mensualidad".</td></tr>';
     }
     $('buscarMens').addEventListener('input', pintarMensualidades);
+
+    // ---------- Mensualidades: crear y renovar (el dinero entra a la caja) ----------
+    function imprimirPago(p) { if ($('chkReciboMens').checked) imprimir(reciboMensualidad(config, p), config.ancho_papel); }
+    function reimprimirPago(id) { const p = pagosHoy.find((x) => x.id === id); if (p) imprimir(reciboMensualidad(config, p), config.ancho_papel); }
+
+    function abrirNuevaMens() {
+      $('formNuevaMens').reset();
+      $('formNuevaMens').style.display = '';
+      $('btnNuevaMens').style.display = 'none';
+      $('nmValor').value = valorMesDe($('nmTipo').value) || '';
+      $('nmHasta').textContent = sumarMes(hoyStr());
+      $('nmPlaca').focus();
+    }
+    function cerrarNuevaMens() { $('formNuevaMens').style.display = 'none'; $('btnNuevaMens').style.display = ''; }
+    $('btnNuevaMens').addEventListener('click', abrirNuevaMens);
+    $('btnCancelarMens').addEventListener('click', cerrarNuevaMens);
+    $('nmTipo').addEventListener('change', () => { $('nmValor').value = valorMesDe($('nmTipo').value) || ''; });
+    $('nmPlaca').addEventListener('input', (e) => {
+      const t = detectarTipo(limpiarPlaca(e.target.value));
+      if (t && t !== $('nmTipo').value) { $('nmTipo').value = t; $('nmValor').value = valorMesDe(t) || ''; }
+    });
+
+    $('formNuevaMens').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = { placa: $('nmPlaca').value, tipo: $('nmTipo').value, propietario: $('nmProp').value, telefono: $('nmTel').value, valor: $('nmValor').value };
+      if (!confirm(`¿Crear mensualidad para ${limpiarPlaca(body.placa)}?\n\nValor recibido: ${pesos(body.valor)}\nVálida hasta: ${$('nmHasta').textContent}`)) return;
+      const btn = e.submitter; btn.disabled = true;
+      try {
+        const r = await api('/api/mensualidades', { method: 'POST', body });
+        if (r.pago) imprimirPago(r.pago);
+        aviso($('msgMens'), `Mensualidad ${r.mensualidad.placa} creada hasta ${r.mensualidad.fecha_fin}. Cobrado ${pesos(r.pago?.valor)} ✔`, 'ok');
+        cerrarNuevaMens();
+        cargarMensualidades();
+      } catch (err) { aviso($('msgMens'), err.message, 'error'); }
+      btn.disabled = false;
+    });
+
+    async function renovarMens(id) {
+      const m = mensualidades.find((x) => x.id === id); if (!m) return;
+      const hoy = hoyStr();
+      const nueva = sumarMes(m.fecha_fin >= hoy ? m.fecha_fin : hoy);
+      const txt = prompt(`Renovar ${m.placa} por 1 mes (quedará válida hasta ${nueva}).\n\nValor recibido:`, m.valor || valorMesDe(m.tipo) || '');
+      if (txt === null) return;
+      const valor = soloNumero(txt);
+      if (!valor) return aviso($('msgMens'), 'Escriba el valor recibido', 'error');
+      try {
+        const r = await api(`/api/mensualidades/${id}/pago`, { method: 'POST', body: { valor } });
+        imprimirPago(r.pago);
+        aviso($('msgMens'), `${m.placa} renovada hasta ${r.mensualidad.fecha_fin}. Cobrado ${pesos(valor)} ✔`, 'ok');
+      } catch (e) { aviso($('msgMens'), e.message, 'error'); }
+      cargarMensualidades();
+    }
 
     // ---------- Cuadre / cierre de caja ----------
     let pendiente = null, cierresHoy = [];
@@ -303,13 +401,16 @@
         const r = await api('/api/caja/resumen');
         pendiente = r.pendiente; cierresHoy = r.cierresHoy;
         $('cTotal').textContent = pesos(pendiente.total_sistema);
-        $('cDesde').textContent = pendiente.desde ? `desde ${fechaHora(pendiente.desde)}` : 'sin cobros pendientes';
+        $('cDesde').textContent = pendiente.desde ? `desde ${fechaHora(pendiente.desde)}` : 'sin dinero pendiente';
         $('cCant').textContent = pendiente.cantidad;
         $('cDetalle').textContent = textoDetalle(pendiente.detalle);
+        $('cMensPagos').textContent = pendiente.mens_pagos;
+        $('cMensValor').textContent = pesos(pendiente.mens_valor);
         $('cMens').textContent = pendiente.mens_entradas;
         $('tablaCuadre').innerHTML = Object.entries(pendiente.detalle).map(([t, d]) =>
-          `<tr><td>${icono(t)} ${esc(nombreTipo(t))}</td><td>${d.n}</td><td>${pesos(d.valor)}</td></tr>`).join('')
-          + `<tr><td><b>TOTAL</b></td><td><b>${pendiente.cantidad}</b></td><td><b>${pesos(pendiente.total_sistema)}</b></td></tr>`;
+          `<tr><td>${icono(t)} Parqueo ${esc(nombreTipo(t))}</td><td>${d.n}</td><td>${pesos(d.valor)}</td></tr>`).join('')
+          + (pendiente.mens_pagos ? `<tr><td>💵 Pagos de mensualidad</td><td>${pendiente.mens_pagos}</td><td>${pesos(pendiente.mens_valor)}</td></tr>` : '')
+          + `<tr><td><b>TOTAL</b></td><td><b>${pendiente.cantidad + pendiente.mens_pagos}</b></td><td><b>${pesos(pendiente.total_sistema)}</b></td></tr>`;
         actualizarDiferencia();
         $('tablaCierres').innerHTML = cierresHoy.map((c) => `<tr>
           <td>${c.id}</td><td>${hora(c.fecha)}</td><td>${esc(c.usuario)}</td><td>${pesos(c.total_sistema)}</td>

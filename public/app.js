@@ -30,12 +30,19 @@ const fechaHora = (d) => new Date(d).toLocaleString('es-CO', { timeZone: ZONA, d
 const hora = (d) => new Date(d).toLocaleTimeString('es-CO', { timeZone: ZONA, hour: '2-digit', minute: '2-digit', hour12: true });
 const hoyStr = () => new Date().toLocaleDateString('en-CA', { timeZone: ZONA });
 function sumarDias(f, n) { const d = new Date(f + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+// "2026-01-31" + 1 mes = "2026-02-28" (igual que en el servidor)
+function sumarMes(f) {
+  const [y, m, d] = f.split('-').map(Number);
+  const ultimo = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, Math.min(d, ultimo))).toISOString().slice(0, 10);
+}
 function duracion(min) {
   const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;
   return [d ? d + ' d' : '', h ? h + ' h' : '', m + ' min'].filter(Boolean).join(' ');
 }
 const minutosDesde = (d) => Math.max(0, Math.floor((Date.now() - new Date(d)) / 60000));
 const limpiarPlaca = (p) => String(p || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+const soloNumero = (t) => Number(String(t || '').replace(/[^\d]/g, '')) || 0; // "60.000" -> 60000
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function aviso(el, texto, tipo = 'ok') { el.className = 'aviso ' + tipo; el.textContent = texto; }
 
@@ -44,6 +51,7 @@ let TIPOS = []; // se llena con lo que devuelve /api/config
 const ICONOS = { moto: '🏍️', carro: '🚗', bicicleta: '🚲' };
 const icono = (tipo) => ICONOS[tipo] || '🚙';
 const nombreTipo = (tipo) => (TIPOS.find((t) => t.tipo === tipo) || {}).nombre || tipo;
+const valorMesDe = (tipo) => (TIPOS.find((t) => t.tipo === tipo) || {}).valor_mes || 0;
 const tiposActivos = () => TIPOS.filter((t) => t.activo);
 function detectarTipo(placa) {
   let t = null;
@@ -115,6 +123,18 @@ function reciboSalida(cfg, r) {
     <p class="c">${esc(cfg.mensaje)}</p>`;
 }
 
+function reciboMensualidad(cfg, p) {
+  return `${encabezadoRecibo(cfg)}
+    <p class="c"><b>PAGO DE MENSUALIDAD N° ${p.id}</b></p>
+    <p class="c g">${esc(p.placa)}</p>
+    <p class="c">${esc(nombreTipo(p.tipo).toUpperCase())}</p><hr>
+    ${p.propietario ? `<p>Cliente: ${esc(p.propietario)}</p>` : ''}
+    <p>Fecha pago: ${fechaHora(p.fecha)}</p>
+    <p><b>Válida hasta: ${p.hasta}</b></p><hr>
+    <p class="c t">TOTAL ${pesos(p.valor)}</p><hr>
+    <p class="c">${esc(cfg.mensaje)}</p>`;
+}
+
 function reciboCierre(cfg, c) {
   const lineas = Object.entries(c.detalle || {}).map(([t, d]) => `<p>${esc(nombreTipo(t))}: ${d.n} = ${pesos(d.valor)}</p>`).join('');
   return `${encabezadoRecibo(cfg)}
@@ -123,6 +143,7 @@ function reciboCierre(cfg, c) {
     <p>Cajero: ${esc(c.usuario)}</p>
     ${c.desde ? `<p>Desde:  ${fechaHora(c.desde)}</p><p>Hasta:  ${fechaHora(c.hasta)}</p>` : ''}<hr>
     ${lineas}
+    ${c.mens_pagos ? `<p>Pagos mensualidad: ${c.mens_pagos} = ${pesos(c.mens_valor)}</p>` : ''}
     <p>Vehículos cobrados: ${c.cantidad}</p>
     <p>Mensualidades (entradas hoy): ${c.mens_entradas}</p><hr>
     <p><b>TOTAL SISTEMA: ${pesos(c.total_sistema)}</b></p>
@@ -131,3 +152,18 @@ function reciboCierre(cfg, c) {
     ${c.observaciones ? `<hr><p>Obs: ${esc(c.observaciones)}</p>` : ''}
     <br><br><p>Firma cajero: ______________</p><br><br><p>Firma admin: _______________</p>`;
 }
+
+// ---------- Encabezado: letrero P, nombre del parqueadero y reloj ----------
+(function decorarEncabezado() {
+  const header = document.querySelector('header');
+  const h1 = header && header.querySelector('h1');
+  if (!h1) return;
+  const titulo = h1.textContent.replace('🅿️', '').trim(); // "Caja" o "Panel del administrador"
+  h1.innerHTML = `<span class="logo">P</span><span><span id="marcaNombre">Parqueadero</span><small>${esc(titulo)}</small></span>`;
+  const reloj = document.createElement('div');
+  reloj.className = 'reloj-top';
+  h1.after(reloj);
+  const tic = () => { reloj.textContent = new Date().toLocaleTimeString('es-CO', { timeZone: ZONA, hour: '2-digit', minute: '2-digit', hour12: true }); };
+  tic(); setInterval(tic, 15000);
+  fetch('/api/marca').then((r) => r.json()).then((d) => { if (d.nombre) document.getElementById('marcaNombre').textContent = d.nombre; }).catch(() => {});
+})();
