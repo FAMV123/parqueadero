@@ -15,10 +15,24 @@ permissions:
 
 jobs:
   copia:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # versión fija, para que no cambie sola
     steps:
+      - name: Revisar que exista el secreto SUPABASE_DB_URL
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$DB_URL" ]; then
+            echo "::error::Falta el secreto SUPABASE_DB_URL. Créelo en Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          case "$DB_URL" in
+            *"[YOUR-PASSWORD]"*) echo "::error::La URI todavía tiene [YOUR-PASSWORD]. Reemplácelo por la contraseña real."; exit 1 ;;
+            *pooler.supabase.com*) echo "Secreto encontrado (Session pooler) ✔" ;;
+            *) echo "::warning::La URI no parece ser del Session pooler. Si falla la conexión, use la de Session pooler." ;;
+          esac
+
       - name: Descargar el repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Instalar herramientas de PostgreSQL 17
         run: |
@@ -44,7 +58,7 @@ jobs:
           ls -lh copia
 
       - name: Guardar copia diaria (se conserva 90 días)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: copia-${{ env.FECHA }}
           path: copia/*.sql.gz
