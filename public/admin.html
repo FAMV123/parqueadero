@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parqueadero - Administrador</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <h1>🅿️ Panel del administrador</h1>
+    <a href="/caja.html">Ir a la caja</a>
+    <button onclick="salir()">Salir</button>
+  </header>
+
+  <main>
+    <div class="tabs">
+      <button class="activa" data-vista="vResumen">Resumen</button>
+      <button data-vista="vCierres">Cierres de caja <span id="badgeCierres" class="chip vencida" style="display:none"></span></button>
+      <button data-vista="vTarifas">Tipos y tarifas</button>
+      <button data-vista="vMens">Mensualidades</button>
+      <button data-vista="vRecibo">Datos del recibo</button>
+      <button data-vista="vSistema">Sistema</button>
+    </div>
+
+    <!-- ================= RESUMEN ================= -->
+    <section id="vResumen" class="vista activa">
+      <div class="card">
+        <div class="fila">
+          <button class="btn gris" onclick="rango('hoy')">Hoy</button>
+          <button class="btn gris" onclick="rango('ayer')">Ayer</button>
+          <button class="btn gris" onclick="rango('semana')">Esta semana</button>
+          <button class="btn gris" onclick="rango('mes')">Este mes</button>
+          <div><label>Desde</label><input type="date" id="desde"></div>
+          <div><label>Hasta</label><input type="date" id="hasta"></div>
+          <button class="btn" onclick="cargarReporte()">Consultar</button>
+        </div>
+      </div>
+      <div class="kpis" id="kpisResumen"></div>
+      <div class="card">
+        <h2>Por día</h2>
+        <div class="tabla">
+          <table>
+            <thead id="cabDias"></thead>
+            <tbody id="tablaDias"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Detalle de cobros</h2>
+        <p class="nota">El detalle con placas se conserva 90 días. Los días más antiguos aparecen arriba en "Por día" con sus totales (marcados como <i>resumen</i>).</p>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Recibo</th><th>Placa</th><th>Tipo</th><th>Entrada</th><th>Salida</th><th>Tiempo</th><th>Valor</th></tr></thead>
+            <tbody id="tablaDetalle"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CIERRES DE CAJA ================= -->
+    <section id="vCierres" class="vista">
+      <div class="card">
+        <div class="fila">
+          <div><label>Desde</label><input type="date" id="ciDesde"></div>
+          <div><label>Hasta</label><input type="date" id="ciHasta"></div>
+          <div><label><input type="checkbox" id="ciPend" style="width:auto"> Solo pendientes de revisar</label></div>
+          <button class="btn" onclick="cargarCierres()">Consultar</button>
+        </div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="t">Total sistema</div><div class="v" id="ciSis">$0</div></div>
+        <div class="kpi"><div class="t">Total contado</div><div class="v" id="ciCont">$0</div></div>
+        <div class="kpi"><div class="t">Diferencia</div><div class="v" id="ciDif">$0</div></div>
+        <div class="kpi"><div class="t">Cierres</div><div class="v" id="ciNum">0</div><div class="s" id="ciNumS"></div></div>
+      </div>
+      <div class="card">
+        <div class="tabla">
+          <table>
+            <thead><tr><th>N°</th><th>Fecha</th><th>Cajero</th><th>Vehículos</th><th>Sistema</th><th>Contado</th><th>Diferencia</th><th>Observaciones</th><th>Estado</th><th></th></tr></thead>
+            <tbody id="tablaCierres"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card" id="cardDetalle" style="display:none">
+        <h2 id="tituloDetalle">Detalle</h2>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Recibo</th><th>Placa</th><th>Tipo</th><th>Entrada</th><th>Salida</th><th>Tiempo</th><th>Valor</th></tr></thead>
+            <tbody id="tablaDetCierre"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TIPOS Y TARIFAS ================= -->
+    <section id="vTarifas" class="vista">
+      <div class="card">
+        <h2>Tipos de vehículo y tarifas</h2>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Nombre</th><th>Valor hora</th><th>Min. gracia</th><th>Tope por día</th><th>Orden</th><th>Activo</th></tr></thead>
+            <tbody id="tablaTarifas"></tbody>
+          </table>
+        </div>
+        <button class="btn verde" style="margin-top:12px" onclick="guardarTarifas()">Guardar cambios</button>
+        <div id="msgTarifas" class="aviso"></div>
+        <p class="nota">Se cobra por hora o fracción (mínimo 1 hora). Los <b>minutos de gracia</b> son la tolerancia antes de cobrar otra hora. El <b>tope por día</b> es lo máximo por cada 24 horas (0 = sin tope). Un tipo <b>inactivo</b> deja de salir en la caja, pero su historial se conserva.</p>
+      </div>
+      <div class="card">
+        <h2>Agregar tipo de vehículo</h2>
+        <div class="fila">
+          <div><label>Nombre (ej: Bicicleta, Camioneta)</label><input id="nNombre"></div>
+          <div><label>Valor hora</label><input id="nHora" type="number" min="0"></div>
+          <div><label>Min. gracia</label><input id="nGracia" type="number" min="0" value="5"></div>
+          <div><label>Tope por día</label><input id="nTope" type="number" min="0" value="0"></div>
+          <button class="btn" onclick="agregarTipo()">Agregar</button>
+        </div>
+        <div id="msgNuevo" class="aviso"></div>
+      </div>
+    </section>
+
+    <!-- ================= MENSUALIDADES ================= -->
+    <section id="vMens" class="vista">
+      <div class="card">
+        <h2 id="tituloMens">Nueva mensualidad</h2>
+        <form id="formMens">
+          <div class="fila">
+            <div><label>Placa</label><input id="mPlaca" required></div>
+            <div><label>Tipo</label><select id="mTipo"></select></div>
+            <div><label>Propietario</label><input id="mProp"></div>
+            <div><label>Teléfono</label><input id="mTel"></div>
+          </div>
+          <div class="fila">
+            <div><label>Valor mensual</label><input id="mValor" type="number" min="0"></div>
+            <div><label>Desde</label><input id="mIni" type="date"></div>
+            <div><label>Vence</label><input id="mFin" type="date" required></div>
+            <div><label>Activa</label><select id="mActivo"><option value="1">Sí</option><option value="0">No</option></select></div>
+          </div>
+          <div class="acciones" style="margin-top:12px">
+            <button class="btn verde" type="submit">Guardar</button>
+            <button class="btn gris" type="button" onclick="limpiarForm()">Limpiar</button>
+          </div>
+        </form>
+        <div id="msgMens" class="aviso"></div>
+      </div>
+      <div class="card">
+        <input id="buscarMens" placeholder="Buscar placa o propietario..." autocomplete="off">
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Placa</th><th>Tipo</th><th>Propietario</th><th>Teléfono</th><th>Valor</th><th>Vence</th><th>Estado</th><th></th></tr></thead>
+            <tbody id="tablaMens"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= RECIBO ================= -->
+    <section id="vRecibo" class="vista">
+      <div class="card">
+        <h2>Datos que salen en el recibo</h2>
+        <div class="fila">
+          <div><label>Nombre del parqueadero</label><input id="cNombre"></div>
+          <div><label>NIT</label><input id="cNit"></div>
+        </div>
+        <div class="fila">
+          <div><label>Dirección</label><input id="cDir"></div>
+          <div><label>Teléfono</label><input id="cTel"></div>
+          <div><label>Ancho del papel</label><select id="cAncho"><option value="58">58 mm</option><option value="80">80 mm</option></select></div>
+        </div>
+        <label>Mensaje al pie del recibo</label>
+        <textarea id="cMsg" rows="2"></textarea>
+        <div class="acciones" style="margin-top:12px">
+          <button class="btn verde" onclick="guardarConfig()">Guardar</button>
+          <button class="btn gris" onclick="pruebaImpresion()">Imprimir recibo de prueba</button>
+        </div>
+        <div id="msgConfig" class="aviso"></div>
+      </div>
+    </section>
+
+    <!-- ================= SISTEMA ================= -->
+    <section id="vSistema" class="vista">
+      <div class="card">
+        <h2>Espacio de la base de datos</h2>
+        <div style="font-size:28px;font-weight:800" id="sUso">—</div>
+        <div style="background:#e5e7eb;border-radius:999px;height:16px;margin:10px 0;overflow:hidden">
+          <div id="sBarra" style="height:100%;width:0;background:var(--verde);transition:width .5s"></div>
+        </div>
+        <p class="nota" id="sEstado"></p>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="t">Registros con placa</div><div class="v" id="sRegs">0</div><div class="s" id="sRegsS"></div></div>
+        <div class="kpi"><div class="t">Totales guardados desde</div><div class="v" id="sResumen" style="font-size:18px">—</div><div class="s">se conservan siempre</div></div>
+      </div>
+      <div class="card">
+        <h2>Cómo se cuidan los datos</h2>
+        <p class="nota">• Cada noche se hace una <b>copia de seguridad</b> automática en GitHub.<br>
+        • Después de la copia, los cobros con placa de hace más de <b>90 días</b> se convierten en totales por día y tipo, y se borra su detalle.<br>
+        • <b>No se borran nunca:</b> mensualidades, sus entradas y salidas, cierres de caja, tarifas ni datos del recibo.<br>
+        • El plan gratis permite 500 MB. Si el uso pasa de 80%, este medidor se pone en rojo.</p>
+        <button class="btn gris" onclick="cargarSistema()">Actualizar</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    exigirSesion('admin');
+    const $ = (id) => document.getElementById(id);
+    const colorDif = (d) => (d === 0 ? 'var(--verde)' : d < 0 ? 'var(--rojo)' : 'var(--amarillo)');
+    let config = {}, mensualidades = [], cierres = [], editando = null;
+
+    // ---------- Configuración y tipos ----------
+    async function cargarConfig() {
+      const r = await api('/api/config');
+      config = r.config; TIPOS = r.tarifas;
+      $('tablaTarifas').innerHTML = TIPOS.map((t) => `<tr>
+        <td><input id="t_${t.tipo}_nombre" value="${esc(t.nombre)}"></td>
+        <td><input type="number" min="0" id="t_${t.tipo}_hora" value="${t.valor_hora}"></td>
+        <td><input type="number" min="0" id="t_${t.tipo}_gracia" value="${t.minutos_gracia}"></td>
+        <td><input type="number" min="0" id="t_${t.tipo}_tope" value="${t.tope_dia}"></td>
+        <td><input type="number" min="0" id="t_${t.tipo}_orden" value="${t.orden}" style="max-width:80px"></td>
+        <td><input type="checkbox" id="t_${t.tipo}_activo" ${t.activo ? 'checked' : ''} style="width:auto"></td>
+      </tr>`).join('');
+      $('mTipo').innerHTML = tiposActivos().map((t) => `<option value="${esc(t.tipo)}">${esc(t.nombre)}</option>`).join('');
+      $('cNombre').value = config.nombre; $('cNit').value = config.nit; $('cDir').value = config.direccion;
+      $('cTel').value = config.telefono; $('cMsg').value = config.mensaje; $('cAncho').value = config.ancho_papel;
+    }
+
+    async function guardarTarifas() {
+      try {
+        await api('/api/admin/tarifas', { method: 'PUT', body: { tarifas: TIPOS.map((t) => ({
+          tipo: t.tipo,
+          nombre: $(`t_${t.tipo}_nombre`).value,
+          valor_hora: $(`t_${t.tipo}_hora`).value,
+          minutos_gracia: $(`t_${t.tipo}_gracia`).value,
+          tope_dia: $(`t_${t.tipo}_tope`).value,
+          orden: $(`t_${t.tipo}_orden`).value,
+          activo: $(`t_${t.tipo}_activo`).checked,
+        })) } });
+        aviso($('msgTarifas'), 'Cambios guardados ✔');
+        cargarConfig();
+      } catch (e) { aviso($('msgTarifas'), e.message, 'error'); }
+    }
+
+    async function agregarTipo() {
+      try {
+        await api('/api/admin/tipos', { method: 'POST', body: {
+          nombre: $('nNombre').value, valor_hora: $('nHora').value, minutos_gracia: $('nGracia').value, tope_dia: $('nTope').value,
+        } });
+        aviso($('msgNuevo'), `"${$('nNombre').value}" agregado ✔. Ya aparece en la caja.`);
+        $('nNombre').value = ''; $('nHora').value = '';
+        cargarConfig();
+      } catch (e) { aviso($('msgNuevo'), e.message, 'error'); }
+    }
+
+    // ---------- Resumen ----------
+    function rango(cual) {
+      const hoy = hoyStr();
+      let d = hoy, h = hoy;
+      if (cual === 'ayer') d = h = sumarDias(hoy, -1);
+      if (cual === 'semana') { const dow = new Date(hoy + 'T12:00:00Z').getUTCDay(); d = sumarDias(hoy, -((dow + 6) % 7)); }
+      if (cual === 'mes') d = hoy.slice(0, 8) + '01';
+      $('desde').value = d; $('hasta').value = h;
+      cargarReporte();
+    }
+
+    const kpi = (titulo, valor, sub = '', id = '') => `<div class="kpi"><div class="t">${titulo}</div><div class="v" ${id ? `id="${id}"` : ''}>${valor}</div><div class="s">${sub}</div></div>`;
+
+    async function cargarReporte() {
+      try {
+        const [r, dentro, caja] = await Promise.all([
+          api(`/api/admin/reporte?desde=${$('desde').value}&hasta=${$('hasta').value}`),
+          api('/api/dentro'),
+          api('/api/caja/resumen'),
+        ]);
+        const t = r.totales;
+        // Tipos que aparecen: los activos + cualquiera que tenga cobros en el rango
+        const tipos = [...new Set([...tiposActivos().map((x) => x.tipo), ...Object.keys(t.porTipo)])];
+        const mensTxt = Object.entries(t.mensPorTipo).map(([k, n]) => `${n} ${nombreTipo(k)}`).join(' · ');
+
+        $('kpisResumen').innerHTML =
+          kpi('Total recaudado', pesos(t.total), r.desde === r.hasta ? r.desde : `${r.desde} a ${r.hasta}`) +
+          tipos.map((k) => kpi(`${icono(k)} ${esc(nombreTipo(k))}`, (t.porTipo[k] || {}).n || 0, pesos((t.porTipo[k] || {}).valor || 0))).join('') +
+          kpi('Mensualidades (entradas)', t.mensEntradas, mensTxt) +
+          kpi('Dentro ahora', dentro.registros.length, 'visitantes') +
+          kpi('En caja sin cerrar', pesos(caja.pendiente.total_sistema), caja.pendiente.desde ? `desde ${fechaHora(caja.pendiente.desde)}` : 'todo cerrado ✔');
+
+        $('cabDias').innerHTML = `<tr><th>Fecha</th>${tipos.map((k) => `<th>${esc(nombreTipo(k))}</th>`).join('')}<th>Total</th><th>Mens. entradas</th><th>Mens. salidas</th></tr>`;
+        const celda = (d, k) => { const x = d.porTipo[k]; return x ? `${x.n} · ${pesos(x.valor)}` : '—'; };
+        $('tablaDias').innerHTML = r.dias.map((d) => `<tr><td>${d.fecha}${d.resumido ? ' <span class="nota"><i>resumen</i></span>' : ''}</td>${tipos.map((k) => `<td>${celda(d, k)}</td>`).join('')}<td><b>${pesos(d.total)}</b></td><td>${d.mensEntradas}</td><td>${d.mensSalidas}</td></tr>`).join('')
+          || `<tr><td colspan="${tipos.length + 4}" class="nota">Sin movimientos en este rango</td></tr>`;
+        $('tablaDetalle').innerHTML = r.registros.slice().reverse().map((x) => `<tr><td>${x.id}</td><td><b>${esc(x.placa)}</b></td><td>${esc(nombreTipo(x.tipo))}</td><td>${fechaHora(x.entrada)}</td><td>${fechaHora(x.salida)}</td><td>${duracion(x.minutos || 0)}</td><td>${pesos(x.valor)}</td></tr>`).join('')
+          || '<tr><td colspan="7" class="nota">Sin cobros</td></tr>';
+      } catch (e) { alert(e.message); }
+    }
+
+    // ---------- Cierres de caja ----------
+    async function contarPendientes() {
+      try {
+        const n = (await api('/api/admin/cierres?pendientes=1')).cierres.length;
+        $('badgeCierres').textContent = n; $('badgeCierres').style.display = n ? '' : 'none';
+      } catch (e) { console.error(e); }
+    }
+
+    async function cargarCierres() {
+      try {
+        const p = new URLSearchParams({ desde: $('ciDesde').value, hasta: $('ciHasta').value, pendientes: $('ciPend').checked ? '1' : '' });
+        cierres = (await api('/api/admin/cierres?' + p)).cierres;
+        const sum = (k) => cierres.reduce((t, c) => t + c[k], 0);
+        $('ciSis').textContent = pesos(sum('total_sistema'));
+        $('ciCont').textContent = pesos(sum('efectivo_contado'));
+        $('ciDif').textContent = pesos(sum('diferencia')); $('ciDif').style.color = colorDif(sum('diferencia'));
+        $('ciNum').textContent = cierres.length;
+        $('ciNumS').textContent = `${cierres.filter((c) => !c.revisado).length} sin revisar`;
+        $('tablaCierres').innerHTML = cierres.map((c) => `<tr>
+          <td>${c.id}</td><td>${fechaHora(c.fecha)}</td><td>${esc(c.usuario)}</td>
+          <td>${esc(textoDetalle(c.detalle))}</td><td>${pesos(c.total_sistema)}</td><td>${pesos(c.efectivo_contado)}</td>
+          <td style="color:${colorDif(c.diferencia)};font-weight:700">${pesos(c.diferencia)}</td>
+          <td>${esc(c.observaciones)}${c.nota_admin ? `<br><span class="nota">Admin: ${esc(c.nota_admin)}</span>` : ''}</td>
+          <td>${c.revisado ? '<span class="chip dentro">Revisado</span>' : '<span class="chip fuera">Pendiente</span>'}</td>
+          <td class="acciones">
+            ${c.revisado
+              ? `<button class="btn chico gris" onclick="revisar(${c.id}, false)">Quitar revisado</button>`
+              : `<button class="btn chico verde" onclick="revisar(${c.id}, true)">Marcar revisado</button>`}
+            <button class="btn chico gris" onclick="verDetalle(${c.id})">Ver cobros</button>
+            <button class="btn chico gris" onclick="reimprimirCierre(${c.id})">Imprimir</button>
+          </td></tr>`).join('') || '<tr><td colspan="10" class="nota">No hay cierres en este rango</td></tr>';
+        contarPendientes();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function revisar(id, revisado) {
+      const c = cierres.find((x) => x.id === id); if (!c) return;
+      let nota = c.nota_admin;
+      if (revisado) { nota = prompt('Nota del administrador (opcional):', c.nota_admin || ''); if (nota === null) return; }
+      try { await api(`/api/admin/cierres/${id}`, { method: 'PUT', body: { revisado, nota_admin: nota } }); cargarCierres(); }
+      catch (e) { alert(e.message); }
+    }
+
+    async function verDetalle(id) {
+      try {
+        const { registros } = await api(`/api/admin/cierres/${id}/registros`);
+        $('tituloDetalle').textContent = `Cobros del cierre N° ${id} (${registros.length})`;
+        $('tablaDetCierre').innerHTML = registros.map((x) => `<tr><td>${x.id}</td><td><b>${esc(x.placa)}</b></td><td>${esc(nombreTipo(x.tipo))}</td><td>${fechaHora(x.entrada)}</td><td>${fechaHora(x.salida)}</td><td>${duracion(x.minutos || 0)}</td><td>${pesos(x.valor)}</td></tr>`).join('');
+        $('cardDetalle').style.display = '';
+        $('cardDetalle').scrollIntoView({ behavior: 'smooth' });
+      } catch (e) { alert(e.message); }
+    }
+
+    function reimprimirCierre(id) { const c = cierres.find((x) => x.id === id); if (c) imprimir(reciboCierre(config, c), config.ancho_papel); }
+
+    // ---------- Datos del recibo ----------
+    function leerConfig() {
+      return { nombre: $('cNombre').value, nit: $('cNit').value, direccion: $('cDir').value, telefono: $('cTel').value, mensaje: $('cMsg').value, ancho_papel: $('cAncho').value };
+    }
+    async function guardarConfig() {
+      try { await api('/api/admin/config', { method: 'PUT', body: leerConfig() }); aviso($('msgConfig'), 'Datos guardados ✔'); cargarConfig(); }
+      catch (e) { aviso($('msgConfig'), e.message, 'error'); }
+    }
+    function pruebaImpresion() {
+      const c = leerConfig();
+      imprimir(reciboEntrada(c, { id: 0, placa: 'ABC123', tipo: 'carro', entrada: new Date().toISOString() }), c.ancho_papel);
+    }
+
+    // ---------- Mensualidades ----------
+    async function cargarMensualidades() {
+      try { mensualidades = (await api('/api/mensualidades')).mensualidades; pintarMens(); }
+      catch (e) { aviso($('msgMens'), e.message, 'error'); }
+    }
+    function pintarMens() {
+      const q = $('buscarMens').value.trim().toUpperCase();
+      const lista = mensualidades.filter((m) => !q || m.placa.includes(limpiarPlaca(q)) || (m.propietario || '').toUpperCase().includes(q));
+      $('tablaMens').innerHTML = lista.map((m) => {
+        const estado = !m.activo ? '<span class="chip fuera">Inactiva</span>' : m.vencida ? '<span class="chip vencida">Vencida</span>' : '<span class="chip dentro">Al día</span>';
+        return `<tr><td><b>${esc(m.placa)}</b></td><td>${esc(nombreTipo(m.tipo))}</td><td>${esc(m.propietario)}</td><td>${esc(m.telefono)}</td><td>${pesos(m.valor)}</td><td>${m.fecha_fin}</td><td>${estado}</td>
+          <td class="acciones">
+            <button class="btn chico verde" onclick="renovar(${m.id})">+1 mes</button>
+            <button class="btn chico gris" onclick="editar(${m.id})">Editar</button>
+            <button class="btn chico rojo" onclick="eliminar(${m.id})">Eliminar</button>
+          </td></tr>`;
+      }).join('') || '<tr><td colspan="8" class="nota">Aún no hay mensualidades</td></tr>';
+    }
+    $('buscarMens').addEventListener('input', pintarMens);
+
+    function sumarMes(f) { const d = new Date(f + 'T12:00:00Z'); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 10); }
+    function limpiarForm() {
+      editando = null; $('formMens').reset(); $('tituloMens').textContent = 'Nueva mensualidad';
+      $('mIni').value = hoyStr(); $('mFin').value = sumarMes(hoyStr());
+    }
+    function datosDe(m) {
+      return { placa: m.placa, tipo: m.tipo, propietario: m.propietario, telefono: m.telefono, valor: m.valor, fecha_inicio: m.fecha_inicio, fecha_fin: m.fecha_fin, activo: m.activo };
+    }
+
+    function editar(id) {
+      const m = mensualidades.find((x) => x.id === id); if (!m) return;
+      editando = id; $('tituloMens').textContent = 'Editando ' + m.placa;
+      $('mPlaca').value = m.placa; $('mTipo').value = m.tipo; $('mProp').value = m.propietario; $('mTel').value = m.telefono;
+      $('mValor').value = m.valor; $('mIni').value = m.fecha_inicio; $('mFin').value = m.fecha_fin; $('mActivo').value = m.activo ? '1' : '0';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    async function renovar(id) {
+      const m = mensualidades.find((x) => x.id === id); if (!m) return;
+      const base = m.fecha_fin >= hoyStr() ? m.fecha_fin : hoyStr();
+      const nueva = sumarMes(base);
+      if (!confirm(`¿Renovar ${m.placa} hasta ${nueva}?`)) return;
+      try { await api(`/api/admin/mensualidades/${id}`, { method: 'PUT', body: { ...datosDe(m), fecha_fin: nueva, activo: true } }); aviso($('msgMens'), `${m.placa} renovada hasta ${nueva} ✔`); cargarMensualidades(); }
+      catch (e) { aviso($('msgMens'), e.message, 'error'); }
+    }
+
+    async function eliminar(id) {
+      const m = mensualidades.find((x) => x.id === id);
+      if (!m || !confirm(`¿Eliminar la mensualidad de ${m.placa}? Se borra también su historial de entradas.`)) return;
+      try { await api(`/api/admin/mensualidades/${id}`, { method: 'DELETE' }); cargarMensualidades(); }
+      catch (e) { aviso($('msgMens'), e.message, 'error'); }
+    }
+
+    $('formMens').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = { placa: $('mPlaca').value, tipo: $('mTipo').value, propietario: $('mProp').value, telefono: $('mTel').value,
+        valor: $('mValor').value, fecha_inicio: $('mIni').value, fecha_fin: $('mFin').value, activo: $('mActivo').value === '1' };
+      try {
+        if (editando) await api(`/api/admin/mensualidades/${editando}`, { method: 'PUT', body });
+        else await api('/api/admin/mensualidades', { method: 'POST', body });
+        aviso($('msgMens'), 'Mensualidad guardada ✔'); limpiarForm(); cargarMensualidades();
+      } catch (err) { aviso($('msgMens'), err.message, 'error'); }
+    });
+
+    // ---------- Sistema ----------
+    async function cargarSistema() {
+      try {
+        const s = await api('/api/admin/sistema');
+        const mb = (b) => (b / 1024 / 1024).toFixed(1).replace('.', ',') + ' MB';
+        const pct = Math.min(100, (s.bytes / s.limite) * 100);
+        $('sUso').textContent = `${mb(s.bytes)} de ${mb(s.limite)} (${pct.toFixed(1).replace('.', ',')}%)`;
+        $('sBarra').style.width = Math.max(pct, 1) + '%';
+        $('sBarra').style.background = pct >= 80 ? 'var(--rojo)' : pct >= 60 ? 'var(--amarillo)' : 'var(--verde)';
+        $('sEstado').textContent = pct >= 80 ? '⚠️ Uso alto: revisar con el desarrollador.' : '✔ Espacio suficiente.';
+        $('sRegs').textContent = s.registros.toLocaleString('es-CO');
+        $('sRegsS').textContent = s.detalleDesde ? `desde ${fechaHora(s.detalleDesde)}` : 'sin registros';
+        $('sResumen').textContent = s.resumenDesde || 'aún no hay días resumidos';
+      } catch (e) { $('sEstado').textContent = e.message; }
+    }
+
+    // ---------- Inicio ----------
+    activarPestanas((v) => {
+      if (v === 'vResumen') cargarReporte();
+      if (v === 'vCierres') cargarCierres();
+      if (v === 'vMens') cargarMensualidades();
+      if (v === 'vSistema') cargarSistema();
+    });
+    limpiarForm();
+    $('ciDesde').value = sumarDias(hoyStr(), -30); $('ciHasta').value = hoyStr();
+    cargarConfig().then(() => rango('hoy')).catch((e) => alert(e.message));
+    contarPendientes();
+  </script>
+</body>
+</html>

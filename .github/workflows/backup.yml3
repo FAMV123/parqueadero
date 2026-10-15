@@ -1,0 +1,73 @@
+# =========================================================
+#  Copia de seguridad diaria + limpieza de registros de más de 90 días
+#  Corre todas las noches a las 2:00 a. m. (hora Colombia).
+#  Necesita el secreto SUPABASE_DB_URL en GitHub (ver guía).
+# =========================================================
+name: Copia de seguridad diaria
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC = 2:00 a. m. en Colombia
+  workflow_dispatch:       # botón "Run workflow" para correrlo a mano
+
+permissions:
+  contents: write          # para guardar la copia mensual en el repositorio
+
+jobs:
+  copia:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar herramientas de PostgreSQL 17
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: Sacar la copia de la base de datos
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          FECHA=$(TZ=America/Bogota date +%F)
+          echo "FECHA=$FECHA" >> "$GITHUB_ENV"
+          mkdir -p copia
+          /usr/lib/postgresql/17/bin/pg_dump "$DB_URL" --schema=public --no-owner --no-privileges \
+            | grep -v '^CREATE SCHEMA public;$' > "copia/parqueadero-$FECHA.sql"
+          # Verificar que la copia trae los datos antes de seguir
+          grep -q 'COPY public.registros' "copia/parqueadero-$FECHA.sql"
+          grep -q 'COPY public.mensualidades' "copia/parqueadero-$FECHA.sql"
+          gzip "copia/parqueadero-$FECHA.sql"
+          ls -lh copia
+
+      - name: Guardar copia diaria (se conserva 90 días)
+        uses: actions/upload-artifact@v4
+        with:
+          name: copia-${{ env.FECHA }}
+          path: copia/*.sql.gz
+          retention-days: 90
+
+      - name: Guardar copia mensual en el repositorio (el día 1 de cada mes)
+        run: |
+          set -euo pipefail
+          if [ "$(TZ=America/Bogota date +%d)" = "01" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            mkdir -p backups/mensual
+            cp copia/*.sql.gz backups/mensual/
+            git config user.name  "copia-automatica"
+            git config user.email "copia-automatica@users.noreply.github.com"
+            git add backups/mensual
+            git commit -m "Copia mensual $FECHA" || echo "Sin cambios"
+            git push
+          else
+            echo "Hoy no es día 1: solo se guarda la copia diaria."
+          fi
+
+      - name: Limpiar registros de más de 90 días (solo si la copia salió bien)
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          /usr/lib/postgresql/17/bin/psql "$DB_URL" -v ON_ERROR_STOP=1 -At \
+            -c "select 'Registros resumidos y borrados: ' || limpiar_registros_antiguos(90);"

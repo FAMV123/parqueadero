@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parqueadero - Ingreso</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <div class="card login">
+      <h2>🅿️ Parqueadero</h2>
+      <form id="form">
+        <label>Usuario</label>
+        <input id="usuario" autocomplete="username" required autofocus>
+        <label>Clave</label>
+        <input id="clave" type="password" autocomplete="current-password" required>
+        <button class="btn ancho" type="submit">Ingresar</button>
+        <div id="msg" class="aviso"></div>
+      </form>
+    </div>
+  </main>
+  <script src="/app.js"></script>
+  <script>
+    const destino = (rol) => (rol === 'admin' ? '/admin.html' : '/caja.html');
+    if (localStorage.getItem('token')) location.href = destino(localStorage.getItem('rol'));
+
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('msg');
+      try {
+        const r = await api('/api/login', { method: 'POST', body: {
+          usuario: document.getElementById('usuario').value.trim(),
+          clave: document.getElementById('clave').value,
+        } });
+        localStorage.setItem('token', r.token);
+        localStorage.setItem('rol', r.rol);
+        location.href = destino(r.rol);
+      } catch (err) { aviso(msg, err.message, 'error'); }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parqueadero - Caja</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <h1>🅿️ Caja</h1>
+    <a id="linkAdmin" href="/admin.html" style="display:none">Panel administrador</a>
+    <button onclick="salir()">Salir</button>
+  </header>
+
+  <main>
+    <div class="tabs">
+      <button class="activa" data-vista="vCaja">Entrada / Salida</button>
+      <button data-vista="vMens">Mensualidades</button>
+      <button data-vista="vCierre">Cuadre / Cierre de caja</button>
+    </div>
+
+    <!-- ================= ENTRADA / SALIDA ================= -->
+    <section id="vCaja" class="vista activa">
+      <div class="grid">
+        <div class="card">
+          <h2>⬇️ Entrada</h2>
+          <form id="formEntrada">
+            <input id="placaEntrada" class="placa" placeholder="ABC123" maxlength="10" autocomplete="off" autofocus>
+            <div class="selector" id="selTipo"></div>
+            <button class="btn ancho" type="submit">Registrar e imprimir recibo</button>
+          </form>
+          <div id="msgEntrada" class="aviso"></div>
+          <div id="boxMens"></div>
+        </div>
+
+        <div class="card">
+          <h2>⬆️ Salida</h2>
+          <form id="formSalida">
+            <input id="placaSalida" class="placa" placeholder="ABC123" maxlength="10" autocomplete="off">
+            <button class="btn ancho gris" type="submit">Buscar placa</button>
+          </form>
+          <div id="msgSalida" class="aviso"></div>
+          <div id="resSalida" class="resultado"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Vehículos dentro ahora: <span id="numDentro">0</span></h2>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Recibo</th><th>Placa</th><th>Tipo</th><th>Entrada</th><th>Tiempo</th><th></th></tr></thead>
+            <tbody id="tablaDentro"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= MENSUALIDADES ================= -->
+    <section id="vMens" class="vista">
+      <div class="kpis">
+        <div class="kpi"><div class="t">Entradas hoy</div><div class="v" id="kEntradas">0</div><div class="s" id="kEntradasS"></div></div>
+        <div class="kpi"><div class="t">Salidas hoy</div><div class="v" id="kSalidas">0</div></div>
+        <div class="kpi"><div class="t">Dentro ahora</div><div class="v" id="kDentro">0</div></div>
+      </div>
+      <div class="card">
+        <input id="buscarMens" placeholder="Buscar placa o propietario..." autocomplete="off">
+        <div id="msgMens" class="aviso"></div>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Placa</th><th>Tipo</th><th>Propietario</th><th>Vence</th><th>Estado</th><th></th></tr></thead>
+            <tbody id="tablaMens"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Movimientos de hoy</h2>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Hora</th><th>Placa</th><th>Tipo</th><th>Movimiento</th></tr></thead>
+            <tbody id="tablaMovs"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CUADRE / CIERRE DE CAJA ================= -->
+    <section id="vCierre" class="vista">
+      <div class="kpis">
+        <div class="kpi"><div class="t">Total en caja (sin cerrar)</div><div class="v" id="cTotal">$0</div><div class="s" id="cDesde"></div></div>
+        <div class="kpi"><div class="t">Vehículos cobrados</div><div class="v" id="cCant">0</div><div class="s" id="cDetalle"></div></div>
+        <div class="kpi"><div class="t">Mensualidades hoy</div><div class="v" id="cMens">0</div><div class="s">entradas</div></div>
+      </div>
+      <div class="card">
+        <h2>Cuadre por tipo</h2>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Tipo</th><th>Cantidad</th><th>Valor</th></tr></thead>
+            <tbody id="tablaCuadre"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Cerrar caja</h2>
+        <p class="nota">Cuente el efectivo que hay en la caja y escríbalo. El sistema lo compara con lo cobrado y guarda la diferencia para el administrador.</p>
+        <div class="fila">
+          <div><label>Efectivo contado</label><input id="cContado" type="number" min="0" placeholder="0"></div>
+          <div><label>Diferencia</label><div id="cDif" style="font-size:24px;font-weight:800;padding:6px 0">$0</div></div>
+        </div>
+        <label>Observaciones (opcional)</label>
+        <textarea id="cObs" rows="2" placeholder="Ej: faltante por vueltas, billete dañado..."></textarea>
+        <button class="btn ancho verde" id="btnCerrar">Cerrar caja e imprimir</button>
+        <div id="msgCierre" class="aviso"></div>
+      </div>
+      <div class="card">
+        <h2>Cierres de hoy</h2>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>N°</th><th>Hora</th><th>Cajero</th><th>Sistema</th><th>Contado</th><th>Diferencia</th><th>Estado</th><th></th></tr></thead>
+            <tbody id="tablaCierres"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    exigirSesion();
+    if (localStorage.getItem('rol') === 'admin') document.getElementById('linkAdmin').style.display = '';
+
+    let config = { nombre: 'PARQUEADERO', ancho_papel: '58', mensaje: '' };
+    let tipoElegido = null;
+    let mensualidades = [];
+    const $ = (id) => document.getElementById(id);
+    const colorDif = (d) => (d === 0 ? 'var(--verde)' : d < 0 ? 'var(--rojo)' : 'var(--amarillo)');
+
+    async function cargarConfig() {
+      try {
+        const r = await api('/api/config');
+        config = r.config; TIPOS = r.tarifas;
+        pintarSelector();
+      } catch (e) { aviso($('msgEntrada'), e.message, 'error'); }
+    }
+
+    // ---------- Entrada ----------
+    function pintarSelector() {
+      $('selTipo').innerHTML = tiposActivos().map((t) =>
+        `<button type="button" style="min-width:110px" data-tipo="${esc(t.tipo)}">${icono(t.tipo)} ${esc(t.nombre)}</button>`).join('');
+      $('selTipo').style.flexWrap = 'wrap';
+      document.querySelectorAll('#selTipo button').forEach((b) => b.addEventListener('click', () => marcarTipo(b.dataset.tipo)));
+    }
+    function marcarTipo(tipo) {
+      tipoElegido = tipo;
+      document.querySelectorAll('#selTipo button').forEach((b) => b.classList.toggle('activo', b.dataset.tipo === tipo));
+    }
+    $('placaEntrada').addEventListener('input', (e) => {
+      const detectado = detectarTipo(limpiarPlaca(e.target.value));
+      if (detectado) marcarTipo(detectado);
+    });
+
+    $('formEntrada').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const placa = limpiarPlaca($('placaEntrada').value);
+      const btn = e.submitter; btn.disabled = true;
+      $('boxMens').innerHTML = '';
+      try {
+        const r = await api('/api/entrada', { method: 'POST', body: { placa, tipo: tipoElegido } });
+        if (r.mensualidad && r.mensualidad.dentro) {
+          aviso($('msgEntrada'), `${placa} es MENSUALIDAD y ya está DENTRO. Si va saliendo, márquelo en la pestaña Mensualidades.`, 'error');
+        } else if (r.mensualidad) {
+          aviso($('msgEntrada'), `${placa} es MENSUALIDAD (${r.mensualidad.propietario || 'sin nombre'}). No se imprime recibo.`, 'info');
+          $('boxMens').innerHTML = `<button class="btn ancho verde" id="btnMensEntro">Marcar entrada de mensualidad</button>`;
+          $('btnMensEntro').onclick = async () => {
+            if (await moverMensualidad(r.mensualidad.id, 'entrada', $('msgEntrada'))) {
+              aviso($('msgEntrada'), `Entrada de mensualidad ${placa} registrada ✔`, 'ok');
+            }
+            $('boxMens').innerHTML = '';
+          };
+        } else {
+          imprimir(reciboEntrada(config, r.registro), config.ancho_papel);
+          aviso($('msgEntrada'), `${r.registro.placa} registrada a las ${hora(r.registro.entrada)} ✔ ${r.aviso || ''}`, r.aviso ? 'info' : 'ok');
+        }
+        $('placaEntrada').value = ''; marcarTipo(null); $('placaEntrada').focus();
+        cargarDentro();
+      } catch (err) { aviso($('msgEntrada'), err.message, 'error'); }
+      btn.disabled = false;
+    });
+
+    // ---------- Salida ----------
+    async function consultarSalida(placa) {
+      $('resSalida').innerHTML = '';
+      try {
+        const r = await api('/api/salida/consultar', { method: 'POST', body: { placa } });
+        $('msgSalida').className = 'aviso'; $('msgSalida').textContent = '';
+        $('resSalida').innerHTML = `
+          <p><b style="font-size:22px">${esc(r.registro.placa)}</b> · ${esc(nombreTipo(r.registro.tipo))}</p>
+          <p>Entró: ${fechaHora(r.registro.entrada)}</p>
+          <p>Tiempo: <b>${duracion(r.minutos)}</b></p>
+          <div class="total">${pesos(r.valor)}</div>
+          <label><input type="checkbox" id="chkImprimir" checked style="width:auto"> Imprimir recibo de pago</label>
+          <button class="btn ancho verde" id="btnCobrar">Cobrar y dar salida</button>`;
+        $('btnCobrar').onclick = () => confirmarSalida(r.registro.id);
+      } catch (err) { aviso($('msgSalida'), err.message, 'error'); }
+    }
+
+    async function confirmarSalida(id) {
+      $('btnCobrar').disabled = true;
+      try {
+        const { registro } = await api('/api/salida/confirmar', { method: 'POST', body: { id } });
+        if ($('chkImprimir').checked) imprimir(reciboSalida(config, registro), config.ancho_papel);
+        aviso($('msgSalida'), `${registro.placa} salió. Cobrado: ${pesos(registro.valor)} ✔`, 'ok');
+        $('resSalida').innerHTML = ''; $('placaSalida').value = ''; $('placaSalida').focus();
+        cargarDentro();
+      } catch (err) { aviso($('msgSalida'), err.message, 'error'); $('btnCobrar').disabled = false; }
+    }
+
+    $('formSalida').addEventListener('submit', (e) => { e.preventDefault(); consultarSalida(limpiarPlaca($('placaSalida').value)); });
+
+    // ---------- Vehículos dentro ----------
+    let dentro = [];
+    async function cargarDentro() {
+      try {
+        dentro = (await api('/api/dentro')).registros;
+        $('numDentro').textContent = dentro.length;
+        $('tablaDentro').innerHTML = dentro.map((r) => `<tr>
+          <td>${r.id}</td><td><b>${esc(r.placa)}</b></td><td>${esc(nombreTipo(r.tipo))}</td>
+          <td>${fechaHora(r.entrada)}</td><td>${duracion(minutosDesde(r.entrada))}</td>
+          <td class="acciones">
+            <button class="btn chico" onclick="darSalida('${esc(r.placa)}')">Salida</button>
+            <button class="btn chico gris" onclick="reimprimir(${r.id})">Reimprimir</button>
+          </td></tr>`).join('') || '<tr><td colspan="6" class="nota">No hay vehículos dentro</td></tr>';
+      } catch (e) { console.error(e); }
+    }
+    function darSalida(placa) { $('placaSalida').value = placa; consultarSalida(placa); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    function reimprimir(id) { const r = dentro.find((x) => x.id === id); if (r) imprimir(reciboEntrada(config, r), config.ancho_papel); }
+
+    // ---------- Mensualidades ----------
+    // Devuelve true si se guardó; si no, muestra el error en "dondeAvisar"
+    async function moverMensualidad(id, movimiento, dondeAvisar = $('msgMens')) {
+      try {
+        await api(`/api/mensualidades/${id}/movimiento`, { method: 'POST', body: { movimiento } });
+        const m = mensualidades.find((x) => x.id === id);
+        if (m) aviso($('msgMens'), `${m.placa}: ${movimiento === 'entrada' ? 'entrada' : 'salida'} registrada ✔`, 'ok');
+        return true;
+      } catch (e) {
+        aviso(dondeAvisar, e.message, 'error');
+        return false;
+      } finally {
+        cargarMensualidades();
+      }
+    }
+
+    async function cargarMensualidades() {
+      try {
+        const r = await api('/api/mensualidades');
+        mensualidades = r.mensualidades;
+        const movs = r.movimientosHoy;
+        const entradas = movs.filter((m) => m.movimiento === 'entrada');
+        const porTipo = {};
+        for (const m of entradas) porTipo[m.tipo] = (porTipo[m.tipo] || 0) + 1;
+        $('kEntradas').textContent = entradas.length;
+        $('kEntradasS').textContent = Object.entries(porTipo).map(([t, n]) => `${n} ${nombreTipo(t)}`).join(' · ');
+        $('kSalidas').textContent = movs.filter((m) => m.movimiento === 'salida').length;
+        $('kDentro').textContent = mensualidades.filter((m) => m.dentro).length;
+        $('tablaMovs').innerHTML = movs.map((m) => `<tr><td>${hora(m.fecha)}</td><td><b>${esc(m.placa)}</b></td><td>${esc(nombreTipo(m.tipo))}</td><td>${m.movimiento === 'entrada' ? '⬇️ Entró' : '⬆️ Salió'}</td></tr>`).join('')
+          || '<tr><td colspan="4" class="nota">Sin movimientos hoy</td></tr>';
+        pintarMensualidades();
+      } catch (e) { aviso($('msgMens'), e.message, 'error'); }
+    }
+
+    function pintarMensualidades() {
+      const q = $('buscarMens').value.trim().toUpperCase();
+      const lista = mensualidades.filter((m) => m.activo && (!q || m.placa.includes(limpiarPlaca(q)) || (m.propietario || '').toUpperCase().includes(q)));
+      $('tablaMens').innerHTML = lista.map((m) => {
+        const estado = (m.dentro ? '<span class="chip dentro">Dentro</span>' : '<span class="chip fuera">Fuera</span>')
+          + (m.vencida ? ' <span class="chip vencida">Vencida</span>' : '');
+        // Solo se muestra el botón que tiene sentido: si está dentro -> Salió; si está fuera -> Entró
+        const boton = m.dentro
+          ? `<button class="btn chico rojo" onclick="moverMensualidad(${m.id},'salida')">⬆️ Salió</button>`
+          : m.vencida
+            ? '<span class="nota">Vencida: cobrar como visitante</span>'
+            : `<button class="btn chico verde" onclick="moverMensualidad(${m.id},'entrada')">⬇️ Entró</button>`;
+        return `<tr><td><b>${esc(m.placa)}</b></td><td>${esc(nombreTipo(m.tipo))}</td><td>${esc(m.propietario)}</td><td>${m.fecha_fin}</td><td>${estado}</td>
+          <td class="acciones">${boton}</td></tr>`;
+      }).join('') || '<tr><td colspan="6" class="nota">No hay mensualidades (el administrador las crea en su panel)</td></tr>';
+    }
+    $('buscarMens').addEventListener('input', pintarMensualidades);
+
+    // ---------- Cuadre / cierre de caja ----------
+    let pendiente = null, cierresHoy = [];
+
+    function actualizarDiferencia() {
+      if (!pendiente) return;
+      const dif = Number($('cContado').value || 0) - pendiente.total_sistema;
+      $('cDif').textContent = pesos(dif) + (dif < 0 ? ' (falta)' : dif > 0 ? ' (sobra)' : ' ✔');
+      $('cDif').style.color = colorDif(dif);
+    }
+    $('cContado').addEventListener('input', actualizarDiferencia);
+
+    async function cargarCierre() {
+      try {
+        const r = await api('/api/caja/resumen');
+        pendiente = r.pendiente; cierresHoy = r.cierresHoy;
+        $('cTotal').textContent = pesos(pendiente.total_sistema);
+        $('cDesde').textContent = pendiente.desde ? `desde ${fechaHora(pendiente.desde)}` : 'sin cobros pendientes';
+        $('cCant').textContent = pendiente.cantidad;
+        $('cDetalle').textContent = textoDetalle(pendiente.detalle);
+        $('cMens').textContent = pendiente.mens_entradas;
+        $('tablaCuadre').innerHTML = Object.entries(pendiente.detalle).map(([t, d]) =>
+          `<tr><td>${icono(t)} ${esc(nombreTipo(t))}</td><td>${d.n}</td><td>${pesos(d.valor)}</td></tr>`).join('')
+          + `<tr><td><b>TOTAL</b></td><td><b>${pendiente.cantidad}</b></td><td><b>${pesos(pendiente.total_sistema)}</b></td></tr>`;
+        actualizarDiferencia();
+        $('tablaCierres').innerHTML = cierresHoy.map((c) => `<tr>
+          <td>${c.id}</td><td>${hora(c.fecha)}</td><td>${esc(c.usuario)}</td><td>${pesos(c.total_sistema)}</td>
+          <td>${pesos(c.efectivo_contado)}</td><td style="color:${colorDif(c.diferencia)};font-weight:700">${pesos(c.diferencia)}</td>
+          <td>${c.revisado ? '<span class="chip dentro">Revisado</span>' : '<span class="chip fuera">Pendiente</span>'}</td>
+          <td><button class="btn chico gris" onclick="reimprimirCierre(${c.id})">Reimprimir</button></td></tr>`).join('')
+          || '<tr><td colspan="8" class="nota">Aún no hay cierres hoy</td></tr>';
+      } catch (e) { aviso($('msgCierre'), e.message, 'error'); }
+    }
+
+    function reimprimirCierre(id) { const c = cierresHoy.find((x) => x.id === id); if (c) imprimir(reciboCierre(config, c), config.ancho_papel); }
+
+    $('btnCerrar').addEventListener('click', async () => {
+      if ($('cContado').value === '') return aviso($('msgCierre'), 'Escriba el efectivo contado (puede ser 0)', 'error');
+      const contado = Number($('cContado').value);
+      if (!confirm(`¿Cerrar caja?\n\nSistema: ${pesos(pendiente?.total_sistema)}\nContado: ${pesos(contado)}`)) return;
+      $('btnCerrar').disabled = true;
+      try {
+        const { cierre } = await api('/api/caja/cierre', { method: 'POST', body: { efectivo_contado: contado, observaciones: $('cObs').value } });
+        imprimir(reciboCierre(config, cierre), config.ancho_papel);
+        aviso($('msgCierre'), `Cierre N° ${cierre.id} guardado. Diferencia: ${pesos(cierre.diferencia)}`, cierre.diferencia === 0 ? 'ok' : 'info');
+        $('cContado').value = ''; $('cObs').value = '';
+        cargarCierre();
+      } catch (e) { aviso($('msgCierre'), e.message, 'error'); }
+      $('btnCerrar').disabled = false;
+    });
+
+    activarPestanas((v) => { if (v === 'vMens') cargarMensualidades(); if (v === 'vCierre') cargarCierre(); });
+    cargarConfig().then(cargarDentro);
+    setInterval(cargarDentro, 60000);
+  </script>
+</body>
+</html>
