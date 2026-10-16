@@ -16,7 +16,7 @@
   <main>
     <div class="tabs">
       <button class="activa" data-vista="vResumen">Resumen</button>
-      <button data-vista="vCierres">Cierres de caja <span id="badgeCierres" class="chip vencida" style="display:none"></span></button>
+      <button data-vista="vGastos">Relación de gastos</button>
       <button data-vista="vTarifas">Tipos y tarifas</button>
       <button data-vista="vMens">Mensualidades</button>
       <button data-vista="vRecibo">Datos del recibo</button>
@@ -67,36 +67,61 @@
       </div>
     </section>
 
-    <!-- ================= CIERRES DE CAJA ================= -->
-    <section id="vCierres" class="vista">
+    <!-- ================= RELACIÓN DE GASTOS ================= -->
+    <section id="vGastos" class="vista">
       <div class="card">
         <div class="fila">
-          <div><label>Desde</label><input type="date" id="ciDesde"></div>
-          <div><label>Hasta</label><input type="date" id="ciHasta"></div>
-          <div><label><input type="checkbox" id="ciPend" style="width:auto"> Solo pendientes de revisar</label></div>
-          <button class="btn" onclick="cargarCierres()">Consultar</button>
+          <div style="max-width:220px"><label>Mes</label><input type="month" id="gMes"></div>
+          <button class="btn gris" onclick="moverMes(-1)">◀ Mes anterior</button>
+          <button class="btn gris" onclick="moverMes(1)">Mes siguiente ▶</button>
+          <button class="btn" onclick="cargarGastos()">Consultar</button>
         </div>
       </div>
       <div class="kpis">
-        <div class="kpi"><div class="t">Total sistema</div><div class="v" id="ciSis">$0</div></div>
-        <div class="kpi"><div class="t">Total contado</div><div class="v" id="ciCont">$0</div></div>
-        <div class="kpi"><div class="t">Diferencia</div><div class="v" id="ciDif">$0</div></div>
-        <div class="kpi"><div class="t">Cierres</div><div class="v" id="ciNum">0</div><div class="s" id="ciNumS"></div></div>
+        <div class="kpi"><div class="t">Ganancia del mes</div><div class="v" id="gGanancia">$0</div><div class="s" id="gMargen"></div></div>
+        <div class="kpi"><div class="t">📈 Ingresos</div><div class="v" id="gIngresos" style="color:var(--verde)">$0</div><div class="s" id="gIngresosS"></div></div>
+        <div class="kpi"><div class="t">📉 Egresos</div><div class="v" id="gEgresos" style="color:var(--rojo)">$0</div><div class="s" id="gEgresosS"></div></div>
       </div>
-      <div class="card">
-        <div class="tabla">
-          <table>
-            <thead><tr><th>N°</th><th>Fecha</th><th>Cajero</th><th>Vehículos</th><th>Sistema</th><th>Contado</th><th>Diferencia</th><th>Observaciones</th><th>Estado</th><th></th></tr></thead>
-            <tbody id="tablaCierres"></tbody>
-          </table>
+      <div class="grid">
+        <div class="card">
+          <h2>📈 Ingresos</h2>
+          <p class="nota">Se calculan solos con lo cobrado en el parqueadero durante el mes.</p>
+          <div class="tabla">
+            <table>
+              <thead><tr><th>Concepto</th><th style="text-align:right">Valor</th></tr></thead>
+              <tbody id="tablaIngresos"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h2>📉 Egresos</h2>
+          <form id="formGasto">
+            <div class="fila">
+              <div style="flex:2"><label>Concepto</label><input id="gConcepto" list="listaConceptos" placeholder="Ej: Arriendo, Servicios, Empleado" autocomplete="off" required></div>
+              <div><label>Valor</label><input id="gValor" type="number" min="0" required></div>
+              <div><label>Fecha</label><input id="gFecha" type="date"></div>
+            </div>
+            <datalist id="listaConceptos"></datalist>
+            <div class="acciones" style="margin-top:12px">
+              <button class="btn rojo" type="submit" id="btnGasto">+ Agregar egreso</button>
+              <button class="btn gris" type="button" id="btnCancelarGasto" style="display:none" onclick="limpiarGasto()">Cancelar</button>
+              <button class="btn gris" type="button" onclick="copiarMesAnterior()">Copiar gastos del mes anterior</button>
+            </div>
+          </form>
+          <div id="msgGasto" class="aviso"></div>
+          <div class="tabla" style="margin-top:12px">
+            <table>
+              <thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right">Valor</th><th></th></tr></thead>
+              <tbody id="tablaGastos"></tbody>
+            </table>
+          </div>
         </div>
       </div>
-      <div class="card" id="cardDetalle" style="display:none">
-        <h2 id="tituloDetalle">Detalle</h2>
+      <div class="card">
+        <h2>📊 Resultado del mes</h2>
         <div class="tabla">
           <table>
-            <thead><tr><th>Recibo</th><th>Placa</th><th>Tipo</th><th>Entrada</th><th>Salida</th><th>Tiempo</th><th>Valor</th></tr></thead>
-            <tbody id="tablaDetCierre"></tbody>
+            <tbody id="tablaResultado"></tbody>
           </table>
         </div>
       </div>
@@ -150,7 +175,7 @@
           <div class="fila" id="mPagoBox">
             <div><label>Pago del primer mes</label>
               <select id="mPago">
-                <option value="caja">Recibido en la caja (se suma al cierre)</option>
+                <option value="caja">Recibido en la caja (suma al total del día)</option>
                 <option value="admin">Lo recibió el administrador</option>
                 <option value="no">No ha pagado</option>
               </select></div>
@@ -214,7 +239,7 @@
         <h2>Cómo se cuidan los datos</h2>
         <p class="nota">• Cada noche se hace una <b>copia de seguridad</b> automática en GitHub.<br>
         • Después de la copia, los cobros con placa de hace más de <b>90 días</b> se convierten en totales por día y tipo, y se borra su detalle.<br>
-        • <b>No se borran nunca:</b> mensualidades, sus entradas y salidas, cierres de caja, tarifas ni datos del recibo.<br>
+        • <b>No se borran nunca:</b> mensualidades, sus entradas y salidas, pagos, gastos, tarifas ni datos del recibo.<br>
         • El plan gratis permite 500 MB. Si el uso pasa de 80%, este medidor se pone en rojo.</p>
         <button class="btn gris" onclick="cargarSistema()">Actualizar</button>
       </div>
@@ -225,8 +250,7 @@
   <script>
     exigirSesion('admin');
     const $ = (id) => document.getElementById(id);
-    const colorDif = (d) => (d === 0 ? 'var(--verde)' : d < 0 ? 'var(--rojo)' : 'var(--amarillo)');
-    let config = {}, mensualidades = [], cierres = [], editando = null;
+    let config = {}, mensualidades = [], editando = null;
 
     // ---------- Configuración y tipos ----------
     async function cargarConfig() {
@@ -289,10 +313,9 @@
 
     async function cargarReporte() {
       try {
-        const [r, dentro, caja] = await Promise.all([
+        const [r, dentro] = await Promise.all([
           api(`/api/admin/reporte?desde=${$('desde').value}&hasta=${$('hasta').value}`),
           api('/api/dentro'),
-          api('/api/caja/resumen'),
         ]);
         const t = r.totales;
         // Tipos que aparecen: los activos + cualquiera que tenga cobros en el rango
@@ -304,8 +327,7 @@
           tipos.map((k) => kpi(`${icono(k)} ${esc(nombreTipo(k))}`, (t.porTipo[k] || {}).n || 0, pesos((t.porTipo[k] || {}).valor || 0))).join('') +
           kpi('💵 Mensualidades cobradas', pesos(t.mensValor), `${t.mensPagos} pago(s)`) +
           kpi('Mensualidades (entradas)', t.mensEntradas, mensTxt) +
-          kpi('Dentro ahora', dentro.registros.length, 'visitantes') +
-          kpi('En caja sin cerrar', pesos(caja.pendiente.total_sistema), caja.pendiente.desde ? `desde ${fechaHora(caja.pendiente.desde)}` : 'todo cerrado ✔');
+          kpi('Dentro ahora', dentro.registros.length, 'visitantes');
 
         $('cabDias').innerHTML = `<tr><th>Fecha</th>${tipos.map((k) => `<th>${esc(nombreTipo(k))}</th>`).join('')}<th>Mens. pagos</th><th>Total</th><th>Mens. entradas</th><th>Mens. salidas</th></tr>`;
         const celda = (d, k) => { const x = d.porTipo[k]; return x ? `${x.n} · ${pesos(x.valor)}` : '—'; };
@@ -318,61 +340,105 @@
       } catch (e) { alert(e.message); }
     }
 
-    // ---------- Cierres de caja ----------
-    async function contarPendientes() {
+    // ---------- Relación de gastos ----------
+    let gastos = [], editandoGasto = null;
+    const mesActual = () => hoyStr().slice(0, 7);
+    function moverMes(n) {
+      const [y, m] = ($('gMes').value || mesActual()).split('-').map(Number);
+      const d = new Date(Date.UTC(y, m - 1 + n, 1));
+      $('gMes').value = d.toISOString().slice(0, 7);
+      cargarGastos();
+    }
+    const fila = (concepto, valor, estilo = '') => `<tr><td style="${estilo}">${concepto}</td><td style="text-align:right;${estilo}">${valor}</td></tr>`;
+
+    async function cargarGastos() {
       try {
-        const n = (await api('/api/admin/cierres?pendientes=1')).cierres.length;
-        $('badgeCierres').textContent = n; $('badgeCierres').style.display = n ? '' : 'none';
-      } catch (e) { console.error(e); }
+        const mes = $('gMes').value || mesActual();
+        const r = await api(`/api/admin/gastos?mes=${mes}`);
+        gastos = r.gastos;
+        const nombreMes = new Date(r.desde + 'T12:00:00Z').toLocaleDateString('es-CO', { timeZone: 'UTC', month: 'long', year: 'numeric' });
+
+        $('gGanancia').textContent = pesos(r.ganancia);
+        $('gGanancia').style.color = r.ganancia < 0 ? '#f87171' : '';
+        $('gMargen').textContent = r.ingresos.total ? `${Math.round((r.ganancia / r.ingresos.total) * 100)}% de los ingresos · ${nombreMes}` : nombreMes;
+        $('gIngresos').textContent = pesos(r.ingresos.total);
+        $('gIngresosS').textContent = `Parqueo + mensualidades`;
+        $('gEgresos').textContent = pesos(r.egresos);
+        $('gEgresosS').textContent = `${gastos.length} ítem(s)`;
+
+        $('tablaIngresos').innerHTML =
+          fila('🚗 Parqueo (cobros de salida)', pesos(r.ingresos.parqueo)) +
+          fila('💵 Mensualidades', pesos(r.ingresos.mensualidades)) +
+          fila('<b>TOTAL INGRESOS</b>', `<b>${pesos(r.ingresos.total)}</b>`);
+
+        $('tablaGastos').innerHTML = gastos.map((g) => `<tr>
+          <td>${g.fecha}</td><td><b>${esc(g.concepto)}</b></td><td style="text-align:right">${pesos(g.valor)}</td>
+          <td class="acciones" style="justify-content:flex-end">
+            <button class="btn chico gris" onclick="editarGasto(${g.id})">Editar</button>
+            <button class="btn chico rojo" onclick="eliminarGasto(${g.id})">Eliminar</button>
+          </td></tr>`).join('')
+          + (gastos.length ? `<tr><td></td><td><b>TOTAL EGRESOS</b></td><td style="text-align:right"><b>${pesos(r.egresos)}</b></td><td></td></tr>`
+                           : '<tr><td colspan="4" class="nota">Aún no hay egresos este mes. Agregue arriendo, servicios, empleados…</td></tr>');
+
+        const color = r.ganancia < 0 ? 'var(--rojo)' : 'var(--verde)';
+        $('tablaResultado').innerHTML =
+          fila('📈 Ingresos', pesos(r.ingresos.total), 'font-size:16px') +
+          fila('📉 Egresos', '− ' + pesos(r.egresos), 'font-size:16px') +
+          fila(`<b>${r.ganancia < 0 ? 'PÉRDIDA' : 'GANANCIA'}</b>`, `<b style="color:${color}">${pesos(r.ganancia)}</b>`, 'font-size:22px');
+
+        $('listaConceptos').innerHTML = ['Arriendo', 'Servicios públicos', 'Empleado', 'Internet', 'Papel térmico', 'Aseo', 'Vigilancia', ...r.conceptos]
+          .filter((v, i, a) => a.indexOf(v) === i).map((c) => `<option value="${esc(c)}">`).join('');
+        if (!editandoGasto) $('gFecha').value = mes === mesActual() ? hoyStr() : `${mes}-01`;
+      } catch (e) { aviso($('msgGasto'), e.message, 'error'); }
     }
 
-    async function cargarCierres() {
+    function limpiarGasto() {
+      editandoGasto = null;
+      $('formGasto').reset();
+      $('btnGasto').textContent = '+ Agregar egreso';
+      $('btnCancelarGasto').style.display = 'none';
+      const mes = $('gMes').value || mesActual();
+      $('gFecha').value = mes === mesActual() ? hoyStr() : `${mes}-01`;
+    }
+
+    function editarGasto(id) {
+      const g = gastos.find((x) => x.id === id); if (!g) return;
+      editandoGasto = id;
+      $('gConcepto').value = g.concepto; $('gValor').value = g.valor; $('gFecha').value = g.fecha;
+      $('btnGasto').textContent = 'Guardar cambios';
+      $('btnCancelarGasto').style.display = '';
+      $('gConcepto').focus();
+    }
+
+    async function eliminarGasto(id) {
+      const g = gastos.find((x) => x.id === id);
+      if (!g || !confirm(`¿Eliminar el egreso "${g.concepto}" por ${pesos(g.valor)}?`)) return;
+      try { await api(`/api/admin/gastos/${id}`, { method: 'DELETE' }); aviso($('msgGasto'), 'Egreso eliminado ✔'); cargarGastos(); }
+      catch (e) { aviso($('msgGasto'), e.message, 'error'); }
+    }
+
+    async function copiarMesAnterior() {
+      const mes = $('gMes').value || mesActual();
+      const aviso2 = gastos.length ? `\n\nOjo: este mes ya tiene ${gastos.length} egreso(s); se agregarán además de esos.` : '';
+      if (!confirm(`¿Copiar los egresos del mes anterior a ${mes}?${aviso2}`)) return;
       try {
-        const p = new URLSearchParams({ desde: $('ciDesde').value, hasta: $('ciHasta').value, pendientes: $('ciPend').checked ? '1' : '' });
-        cierres = (await api('/api/admin/cierres?' + p)).cierres;
-        const sum = (k) => cierres.reduce((t, c) => t + c[k], 0);
-        $('ciSis').textContent = pesos(sum('total_sistema'));
-        $('ciCont').textContent = pesos(sum('efectivo_contado'));
-        $('ciDif').textContent = pesos(sum('diferencia')); $('ciDif').style.color = colorDif(sum('diferencia'));
-        $('ciNum').textContent = cierres.length;
-        $('ciNumS').textContent = `${cierres.filter((c) => !c.revisado).length} sin revisar`;
-        $('tablaCierres').innerHTML = cierres.map((c) => `<tr>
-          <td>${c.id}</td><td>${fechaHora(c.fecha)}</td><td>${esc(c.usuario)}</td>
-          <td>${esc(textoDetalle(c.detalle))}${c.mens_pagos ? `<br><span class="nota">+ ${c.mens_pagos} pago(s) mensualidad ${pesos(c.mens_valor)}</span>` : ''}</td><td>${pesos(c.total_sistema)}</td><td>${pesos(c.efectivo_contado)}</td>
-          <td style="color:${colorDif(c.diferencia)};font-weight:700">${pesos(c.diferencia)}</td>
-          <td>${esc(c.observaciones)}${c.nota_admin ? `<br><span class="nota">Admin: ${esc(c.nota_admin)}</span>` : ''}</td>
-          <td>${c.revisado ? '<span class="chip dentro">Revisado</span>' : '<span class="chip fuera">Pendiente</span>'}</td>
-          <td class="acciones">
-            ${c.revisado
-              ? `<button class="btn chico gris" onclick="revisar(${c.id}, false)">Quitar revisado</button>`
-              : `<button class="btn chico verde" onclick="revisar(${c.id}, true)">Marcar revisado</button>`}
-            <button class="btn chico gris" onclick="verDetalle(${c.id})">Ver cobros</button>
-            <button class="btn chico gris" onclick="reimprimirCierre(${c.id})">Imprimir</button>
-          </td></tr>`).join('') || '<tr><td colspan="10" class="nota">No hay cierres en este rango</td></tr>';
-        contarPendientes();
-      } catch (e) { alert(e.message); }
+        const r = await api('/api/admin/gastos/copiar', { method: 'POST', body: { mes } });
+        aviso($('msgGasto'), `${r.copiados} egreso(s) copiados ✔. Revise los valores por si cambiaron.`);
+        cargarGastos();
+      } catch (e) { aviso($('msgGasto'), e.message, 'error'); }
     }
 
-    async function revisar(id, revisado) {
-      const c = cierres.find((x) => x.id === id); if (!c) return;
-      let nota = c.nota_admin;
-      if (revisado) { nota = prompt('Nota del administrador (opcional):', c.nota_admin || ''); if (nota === null) return; }
-      try { await api(`/api/admin/cierres/${id}`, { method: 'PUT', body: { revisado, nota_admin: nota } }); cargarCierres(); }
-      catch (e) { alert(e.message); }
-    }
-
-    async function verDetalle(id) {
+    $('formGasto').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = { concepto: $('gConcepto').value, valor: $('gValor').value, fecha: $('gFecha').value };
       try {
-        const { registros, pagos } = await api(`/api/admin/cierres/${id}/registros`);
-        $('tituloDetalle').textContent = `Dinero del cierre N° ${id} (${registros.length} cobros, ${pagos.length} pagos de mensualidad)`;
-        $('tablaDetCierre').innerHTML = registros.map((x) => `<tr><td>${x.id}</td><td><b>${esc(x.placa)}</b></td><td>${esc(nombreTipo(x.tipo))}</td><td>${fechaHora(x.entrada)}</td><td>${fechaHora(x.salida)}</td><td>${duracion(x.minutos || 0)}</td><td>${pesos(x.valor)}</td></tr>`).join('')
-          + pagos.map((p) => `<tr><td>M-${p.id}</td><td><b>${esc(p.placa)}</b></td><td>💵 Mensualidad</td><td colspan="2">${fechaHora(p.fecha)} · ${esc(p.propietario)}</td><td>hasta ${p.hasta}</td><td>${pesos(p.valor)}</td></tr>`).join('');
-        $('cardDetalle').style.display = '';
-        $('cardDetalle').scrollIntoView({ behavior: 'smooth' });
-      } catch (e) { alert(e.message); }
-    }
-
-    function reimprimirCierre(id) { const c = cierres.find((x) => x.id === id); if (c) imprimir(reciboCierre(config, c), config.ancho_papel); }
+        if (editandoGasto) await api(`/api/admin/gastos/${editandoGasto}`, { method: 'PUT', body });
+        else await api('/api/admin/gastos', { method: 'POST', body });
+        aviso($('msgGasto'), editandoGasto ? 'Egreso actualizado ✔' : `Egreso "${body.concepto}" agregado ✔`);
+        limpiarGasto();
+        cargarGastos();
+      } catch (err) { aviso($('msgGasto'), err.message, 'error'); }
+    });
 
     // ---------- Datos del recibo ----------
     function leerConfig() {
@@ -432,7 +498,7 @@
       if (txt === null) return;
       const valor = soloNumero(txt);
       if (!valor) return aviso($('msgMens'), 'Escriba el valor recibido', 'error');
-      const enCaja = confirm(`¿El dinero (${pesos(valor)}) quedó en la CAJA?\n\nAceptar = Sí, se suma al cierre de caja\nCancelar = No, lo recibió el administrador`);
+      const enCaja = confirm(`¿El dinero (${pesos(valor)}) quedó en la CAJA?\n\nAceptar = Sí, suma al total del día de la caja\nCancelar = No, lo recibió el administrador`);
       try {
         const r = await api(`/api/mensualidades/${id}/pago`, { method: 'POST', body: { valor, en_caja: enCaja } });
         aviso($('msgMens'), `${m.placa} renovada hasta ${r.mensualidad.fecha_fin}. Pago ${pesos(valor)} (${enCaja ? 'en caja' : 'recibido por el administrador'}) ✔`);
@@ -477,14 +543,13 @@
     // ---------- Inicio ----------
     activarPestanas((v) => {
       if (v === 'vResumen') cargarReporte();
-      if (v === 'vCierres') cargarCierres();
+      if (v === 'vGastos') cargarGastos();
       if (v === 'vMens') cargarMensualidades();
       if (v === 'vSistema') cargarSistema();
     });
     limpiarForm();
-    $('ciDesde').value = sumarDias(hoyStr(), -30); $('ciHasta').value = hoyStr();
+    $('gMes').value = hoyStr().slice(0, 7);
     cargarConfig().then(() => { limpiarForm(); rango('hoy'); }).catch((e) => alert(e.message));
-    contarPendientes();
   </script>
 </body>
 </html>

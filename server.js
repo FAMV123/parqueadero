@@ -137,7 +137,10 @@ app.post('/api/entrada', auth(), wrap(async (req, res) => {
   const { data: mens } = await db.from('mensualidades').select('*').eq('placa', placa).maybeSingle();
   let aviso = '';
   if (mens && mens.activo) {
-    if (mens.fecha_fin >= fechaBogota()) return res.json({ mensualidad: mens });
+    if (mens.fecha_fin >= fechaBogota()) {
+      const mov = await entradaDeHoy(mens.id);
+      return res.json({ mensualidad: { ...mens, entroHoy: !!mov, horaEntrada: mov?.fecha || null } });
+    }
     aviso = `La mensualidad de ${placa} está vencida desde ${mens.fecha_fin}. Se registra como visitante.`;
   }
 
@@ -159,7 +162,7 @@ app.post('/api/salida/consultar', auth(), wrap(async (req, res) => {
   const { data: registro } = await db.from('registros').select('*').eq('placa', placa).eq('estado', 'dentro').maybeSingle();
   if (!registro) {
     const { data: mens } = await db.from('mensualidades').select('id').eq('placa', placa).maybeSingle();
-    const extra = mens ? ' Es una mensualidad: márquela en la pestaña Mensualidades.' : '';
+    const extra = mens ? ' Es una mensualidad: no paga salida (solo se marca la entrada).' : '';
     return res.status(404).json({ error: `No hay ningún vehículo con placa ${placa} dentro.${extra}` });
   }
   res.json({ registro, ...(await liquidar(registro)) });
@@ -184,6 +187,17 @@ app.get('/api/dentro', auth(), wrap(async (req, res) => {
 }));
 
 // ---------- Mensualidades ----------
+// Solo se marcan ENTRADAS. "Entró" quiere decir "entró HOY": a medianoche (hora Colombia)
+// todas vuelven a quedar sin entrar automáticamente, sin tareas programadas.
+async function entradaDeHoy(mensualidadId) {
+  const hoy = fechaBogota();
+  const { data, error } = await db.from('movimientos_mensualidad').select('id,fecha')
+    .eq('mensualidad_id', mensualidadId).eq('movimiento', 'entrada')
+    .gte('fecha', inicioDia(hoy)).lt('fecha', finDia(hoy)).limit(1);
+  if (error) throw error;
+  return data[0] || null;
+}
+
 async function datosMensualidad(b) {
   const placa = limpiarPlaca(b.placa);
   if (placa.length < 2) throw errorUsuario('Escriba una placa válida');
@@ -236,7 +250,17 @@ app.get('/api/mensualidades', auth(), wrap(async (req, res) => {
     db.from('pagos_mensualidad').select('*').gte('fecha', inicioDia(hoy)).lt('fecha', finDia(hoy)).order('fecha', { ascending: false }),
   ]);
   if (e1 || e2 || e3) throw e1 || e2 || e3;
-  res.json({ mensualidades: lista.map((m) => ({ ...m, vencida: m.fecha_fin < hoy })), movimientosHoy: movimientos, pagosHoy });
+  const entradas = {};
+  for (const mv of movimientos) if (mv.movimiento === 'entrada') entradas[mv.mensualidad_id] = mv.fecha;
+  res.json({
+    mensualidades: lista.map((m) => ({
+      ...m, vencida: m.fecha_fin < hoy,
+      entroHoy: !!entradas[m.id], horaEntrada: entradas[m.id] || null,
+      dentro: !!entradas[m.id],
+    })),
+    movimientosHoy: movimientos.filter((mv) => mv.movimiento === 'entrada'),
+    pagosHoy,
+  });
 }));
 
 // La caja crea una mensualidad nueva: queda vigente 1 mes y el pago entra a la caja
@@ -277,26 +301,42 @@ app.post('/api/mensualidades/:id/pago', auth(), wrap(async (req, res) => {
 }));
 
 app.post('/api/mensualidades/:id/movimiento', auth(), wrap(async (req, res) => {
-  const movimiento = req.body.movimiento;
-  if (!['entrada', 'salida'].includes(movimiento)) return res.status(400).json({ error: 'Movimiento inválido' });
+  if (req.body.movimiento !== 'entrada') return res.status(400).json({ error: 'Las mensualidades solo registran la entrada' });
   const { data: m } = await db.from('mensualidades').select('*').eq('id', Number(req.params.id)).maybeSingle();
   if (!m) return res.status(404).json({ error: 'Mensualidad no encontrada' });
+  if (!m.activo) return res.status(409).json({ error: `La mensualidad de ${m.placa} está inactiva.` });
+  if (m.fecha_fin < fechaBogota()) return res.status(409).json({ error: `La mensualidad de ${m.placa} venció el ${m.fecha_fin}. Renuévela o regístrela como visitante.` });
 
-  const entra = movimiento === 'entrada';
-  if (entra && m.dentro) return res.status(409).json({ error: `${m.placa} ya está dentro. Primero debe marcar la salida.` });
-  if (!entra && !m.dentro) return res.status(409).json({ error: `${m.placa} no ha entrado. No se puede marcar salida.` });
-  if (entra && !m.activo) return res.status(409).json({ error: `La mensualidad de ${m.placa} está inactiva.` });
-  if (entra && m.fecha_fin < fechaBogota()) return res.status(409).json({ error: `La mensualidad de ${m.placa} venció el ${m.fecha_fin}. Renuévela o regístrela como visitante.` });
+  const ya = await entradaDeHoy(m.id);
+  if (ya) return res.status(409).json({ error: `${m.placa} ya registró su entrada hoy a las ${new Date(ya.fecha).toLocaleTimeString('es-CO', { timeZone: ZONA, hour: '2-digit', minute: '2-digit' })}` });
 
-  // Cambia el estado solo si sigue como estaba (evita doble clic o dos cajas al tiempo)
-  const { data: cambio, error: e1 } = await db.from('mensualidades')
-    .update({ dentro: entra }).eq('id', m.id).eq('dentro', !entra).select('id');
-  if (e1) throw e1;
-  if (!cambio.length) return res.status(409).json({ error: `El estado de ${m.placa} acaba de cambiar. Actualice la lista.` });
-
-  const { error: e2 } = await db.from('movimientos_mensualidad').insert({ mensualidad_id: m.id, placa: m.placa, tipo: m.tipo, movimiento });
-  if (e2) throw e2;
+  const { error } = await db.from('movimientos_mensualidad').insert({ mensualidad_id: m.id, placa: m.placa, tipo: m.tipo, movimiento: 'entrada' });
+  if (error) {
+    // La base de datos no deja dos entradas el mismo día (doble clic o dos cajas al tiempo)
+    if (error.code === '23505') return res.status(409).json({ error: `${m.placa} ya registró su entrada hoy.` });
+    throw error;
+  }
   res.json({ ok: true });
+}));
+
+// ---------- Total del día (caja) ----------
+// Suma lo cobrado hoy en salidas + los pagos de mensualidades recibidos hoy en la caja
+app.get('/api/caja/hoy', auth(), wrap(async (req, res) => {
+  const hoy = fechaBogota();
+  const [regs, pagos] = await Promise.all([
+    traerTodo(() => db.from('registros').select('id,tipo,valor').eq('estado', 'salio')
+      .gte('salida', inicioDia(hoy)).lt('salida', finDia(hoy)).order('id')),
+    traerTodo(() => db.from('pagos_mensualidad').select('id,valor').eq('en_caja', true)
+      .gte('fecha', inicioDia(hoy)).lt('fecha', finDia(hoy)).order('id')),
+  ]);
+  const porTipo = {};
+  for (const r of regs) {
+    const d = (porTipo[r.tipo] ??= { n: 0, valor: 0 });
+    d.n++; d.valor += r.valor || 0;
+  }
+  const parqueo = { n: regs.length, valor: regs.reduce((t, r) => t + (r.valor || 0), 0) };
+  const mensualidades = { n: pagos.length, valor: pagos.reduce((t, p) => t + (p.valor || 0), 0) };
+  res.json({ fecha: hoy, parqueo, porTipo, mensualidades, total: parqueo.valor + mensualidades.valor });
 }));
 
 // ---------- Cierre de caja ----------
@@ -532,6 +572,77 @@ app.get('/api/admin/reporte', auth('admin'), wrap(async (req, res) => {
 
   const lista = Object.values(dias).sort((a, b) => a.fecha.localeCompare(b.fecha));
   res.json({ desde, hasta, dias: lista, totales, registros, pagos });
+}));
+
+// ---------- Administrador: relación de gastos (ingresos - egresos = ganancia) ----------
+const esMes = (m) => /^\d{4}-\d{2}$/.test(m || '');
+const ultimoDiaMes = (mes) => { const [y, m] = mes.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
+const mesAnterior = (mes) => { const [y, m] = mes.split('-').map(Number); const d = new Date(Date.UTC(y, m - 2, 1)); return d.toISOString().slice(0, 7); };
+
+function datosGasto(b) {
+  const concepto = String(b.concepto || '').trim().slice(0, 80);
+  if (!concepto) throw errorUsuario('Escriba el concepto del gasto (ej: Arriendo)');
+  const valor = entero(b.valor);
+  if (valor <= 0) throw errorUsuario('Escriba el valor del gasto');
+  return { concepto, valor, fecha: esFecha(b.fecha) ? b.fecha : fechaBogota() };
+}
+
+app.get('/api/admin/gastos', auth('admin'), wrap(async (req, res) => {
+  const mes = esMes(req.query.mes) ? req.query.mes : fechaBogota().slice(0, 7);
+  const desde = `${mes}-01`, hasta = ultimoDiaMes(mes);
+
+  const [gastos, registros, resumen, pagos, conceptos] = await Promise.all([
+    traerTodo(() => db.from('gastos').select('*').gte('fecha', desde).lte('fecha', hasta).order('fecha').order('id')),
+    traerTodo(() => db.from('registros').select('valor').eq('estado', 'salio')
+      .gte('salida', inicioDia(desde)).lt('salida', finDia(hasta)).order('id')),
+    traerTodo(() => db.from('resumen_diario').select('total').gte('fecha', desde).lte('fecha', hasta).order('fecha')),
+    traerTodo(() => db.from('pagos_mensualidad').select('valor')
+      .gte('fecha', inicioDia(desde)).lt('fecha', finDia(hasta)).order('id')),
+    traerTodo(() => db.from('gastos').select('concepto').order('id', { ascending: false })),
+  ]);
+
+  const suma = (filas, campo = 'valor') => filas.reduce((t, x) => t + (x[campo] || 0), 0);
+  const ingresos = {
+    parqueo: suma(registros) + suma(resumen, 'total'),
+    mensualidades: suma(pagos),
+  };
+  ingresos.total = ingresos.parqueo + ingresos.mensualidades;
+  const egresos = suma(gastos);
+  res.json({
+    mes, desde, hasta, gastos, ingresos, egresos,
+    ganancia: ingresos.total - egresos,
+    conceptos: [...new Set(conceptos.map((c) => c.concepto))].slice(0, 30), // para sugerir al escribir
+  });
+}));
+
+app.post('/api/admin/gastos', auth('admin'), wrap(async (req, res) => {
+  const { data, error } = await db.from('gastos').insert(datosGasto(req.body)).select().single();
+  if (error) throw error;
+  res.json({ gasto: data });
+}));
+
+app.put('/api/admin/gastos/:id', auth('admin'), wrap(async (req, res) => {
+  const { data, error } = await db.from('gastos').update(datosGasto(req.body)).eq('id', Number(req.params.id)).select().single();
+  if (error) throw error;
+  res.json({ gasto: data });
+}));
+
+app.delete('/api/admin/gastos/:id', auth('admin'), wrap(async (req, res) => {
+  const { error } = await db.from('gastos').delete().eq('id', Number(req.params.id));
+  if (error) throw error;
+  res.json({ ok: true });
+}));
+
+// Copia los gastos del mes anterior al mes indicado (útil para gastos fijos: arriendo, empleado...)
+app.post('/api/admin/gastos/copiar', auth('admin'), wrap(async (req, res) => {
+  const mes = esMes(req.body.mes) ? req.body.mes : fechaBogota().slice(0, 7);
+  const ant = mesAnterior(mes);
+  const previos = await traerTodo(() => db.from('gastos').select('concepto,valor')
+    .gte('fecha', `${ant}-01`).lte('fecha', ultimoDiaMes(ant)).order('id'));
+  if (!previos.length) throw errorUsuario(`El mes anterior (${ant}) no tiene gastos para copiar`);
+  const { error } = await db.from('gastos').insert(previos.map((g) => ({ ...g, fecha: `${mes}-01` })));
+  if (error) throw error;
+  res.json({ copiados: previos.length });
 }));
 
 // ---------- Administrador: estado del sistema (espacio de la base de datos) ----------
