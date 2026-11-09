@@ -63,7 +63,7 @@ jobs:
           ls -lh copia
 
       - name: Guardar copia diaria (se conserva 90 días)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: copia-${{ steps.fecha.outputs.hoy }}
           path: copia/*.sql.gz
