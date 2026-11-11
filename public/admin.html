@@ -337,7 +337,7 @@
           || '<tr><td colspan="8" class="nota">Sin pagos de mensualidades en este rango</td></tr>';
         $('tablaDetalle').innerHTML = r.registros.slice().reverse().map((x) => `<tr><td>${x.id}</td><td><b>${esc(x.placa)}</b></td><td>${esc(nombreTipo(x.tipo))}</td><td>${fechaHora(x.entrada)}</td><td>${fechaHora(x.salida)}</td><td>${duracion(x.minutos || 0)}</td><td>${pesos(x.valor)}</td></tr>`).join('')
           || '<tr><td colspan="7" class="nota">Sin cobros</td></tr>';
-      } catch (e) { alert(e.message); }
+      } catch (e) { alerta(e.message); }
     }
 
     // ---------- Relación de gastos ----------
@@ -411,16 +411,26 @@
     }
 
     async function eliminarGasto(id) {
-      const g = gastos.find((x) => x.id === id);
-      if (!g || !confirm(`¿Eliminar el egreso "${g.concepto}" por ${pesos(g.valor)}?`)) return;
+      const g = gastos.find((x) => x.id === id); if (!g) return;
+      const ok = await confirmar({
+        icono: '🗑️', titulo: 'Eliminar egreso', boton: 'Eliminar', tipoBoton: 'rojo',
+        cuerpo: datosVentana([['Concepto', esc(g.concepto)], ['Fecha', g.fecha], ['Valor', pesos(g.valor)]])
+          + '<p>Esta acción no se puede deshacer.</p>',
+      });
+      if (!ok) return;
       try { await api(`/api/admin/gastos/${id}`, { method: 'DELETE' }); aviso($('msgGasto'), 'Egreso eliminado ✔'); cargarGastos(); }
       catch (e) { aviso($('msgGasto'), e.message, 'error'); }
     }
 
     async function copiarMesAnterior() {
       const mes = $('gMes').value || mesActual();
-      const aviso2 = gastos.length ? `\n\nOjo: este mes ya tiene ${gastos.length} egreso(s); se agregarán además de esos.` : '';
-      if (!confirm(`¿Copiar los egresos del mes anterior a ${mes}?${aviso2}`)) return;
+      const nombreMes = new Date(mes + '-01T12:00:00Z').toLocaleDateString('es-CO', { timeZone: 'UTC', month: 'long', year: 'numeric' });
+      const ok = await confirmar({
+        icono: '📋', titulo: 'Copiar gastos del mes anterior', boton: 'Copiar gastos',
+        cuerpo: `<p>Se copiarán los egresos del mes anterior (arriendo, empleado, servicios…) a <b>${esc(nombreMes)}</b>.</p>`
+          + (gastos.length ? `<p class="aviso info">Este mes ya tiene ${gastos.length} egreso(s). Los copiados se agregan además de esos.</p>` : ''),
+      });
+      if (!ok) return;
       try {
         const r = await api('/api/admin/gastos/copiar', { method: 'POST', body: { mes } });
         aviso($('msgGasto'), `${r.copiados} egreso(s) copiados ✔. Revise los valores por si cambiaron.`);
@@ -494,11 +504,21 @@
       const m = mensualidades.find((x) => x.id === id); if (!m) return;
       const base = m.fecha_fin >= hoyStr() ? m.fecha_fin : hoyStr();
       const nueva = sumarMes(base);
-      const txt = prompt(`Renovar ${m.placa} hasta ${nueva}.\n\nValor recibido:`, m.valor || valorMesDe(m.tipo) || '');
-      if (txt === null) return;
-      const valor = soloNumero(txt);
-      if (!valor) return aviso($('msgMens'), 'Escriba el valor recibido', 'error');
-      const enCaja = confirm(`¿El dinero (${pesos(valor)}) quedó en la CAJA?\n\nAceptar = Sí, suma al total del día de la caja\nCancelar = No, lo recibió el administrador`);
+      const r0 = await pedirValor({
+        titulo: 'Renovar mensualidad', boton: 'Renovar', valor: m.valor || valorMesDe(m.tipo),
+        cuerpo: placaVentana(m.placa) + datosVentana([
+          ...(m.propietario ? [['Propietario', esc(m.propietario)]] : []),
+          ['Vence', m.fecha_fin],
+          ['Quedará válida hasta', nueva],
+        ]),
+        opciones: [
+          { valor: 'caja', titulo: 'El dinero quedó en la caja', detalle: 'Suma al total del día de la caja' },
+          { valor: 'admin', titulo: 'Lo recibió el administrador', detalle: 'No suma al total de la caja' },
+        ],
+      });
+      if (!r0) return;
+      const valor = r0.valor;
+      const enCaja = r0.opcion === 'caja';
       try {
         const r = await api(`/api/mensualidades/${id}/pago`, { method: 'POST', body: { valor, en_caja: enCaja } });
         aviso($('msgMens'), `${m.placa} renovada hasta ${r.mensualidad.fecha_fin}. Pago ${pesos(valor)} (${enCaja ? 'en caja' : 'recibido por el administrador'}) ✔`);
@@ -507,8 +527,14 @@
     }
 
     async function eliminar(id) {
-      const m = mensualidades.find((x) => x.id === id);
-      if (!m || !confirm(`¿Eliminar la mensualidad de ${m.placa}? Se borra también su historial de entradas.`)) return;
+      const m = mensualidades.find((x) => x.id === id); if (!m) return;
+      const ok = await confirmar({
+        icono: '🗑️', titulo: 'Eliminar mensualidad', boton: 'Eliminar', tipoBoton: 'rojo',
+        cuerpo: placaVentana(m.placa)
+          + (m.propietario ? datosVentana([['Propietario', esc(m.propietario)], ['Vence', m.fecha_fin]]) : '')
+          + '<p>Se borra también su historial de entradas. Esta acción no se puede deshacer.</p>',
+      });
+      if (!ok) return;
       try { await api(`/api/admin/mensualidades/${id}`, { method: 'DELETE' }); cargarMensualidades(); }
       catch (e) { aviso($('msgMens'), e.message, 'error'); }
     }
@@ -549,7 +575,7 @@
     });
     limpiarForm();
     $('gMes').value = hoyStr().slice(0, 7);
-    cargarConfig().then(() => { limpiarForm(); rango('hoy'); }).catch((e) => alert(e.message));
+    cargarConfig().then(() => { limpiarForm(); rango('hoy'); }).catch((e) => alerta(e.message));
   </script>
 </body>
 </html>

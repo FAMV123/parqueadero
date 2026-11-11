@@ -226,6 +226,63 @@ td b { font-weight: 800; letter-spacing: .3px; }
 .nota { font-size: 13px; color: var(--suave); line-height: 1.5; }
 .login { max-width: 380px; margin: 10vh auto; }
 
+/* ---------- Ventanas del sistema (confirmaciones, valores, avisos) ---------- */
+.modal-fondo {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(15, 23, 42, .55); backdrop-filter: blur(3px);
+  animation: fondoEntra .15s ease-out;
+}
+.modal-fondo.saliendo { opacity: 0; transition: opacity .15s; }
+.modal {
+  width: 100%; max-width: 440px; max-height: calc(100vh - 32px); overflow: auto;
+  background: var(--tarjeta); border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .35);
+  animation: modalEntra .18s ease-out;
+}
+.modal-cab {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 20px 19px; color: #fff;
+  background:
+    repeating-linear-gradient(-45deg, #111 0 12px, var(--acento) 12px 24px) bottom / 100% 5px no-repeat,
+    linear-gradient(90deg, var(--asfalto2), var(--asfalto));
+}
+.modal-cab h3 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -.2px; }
+.modal-icono {
+  width: 38px; height: 38px; flex: none; display: grid; place-items: center;
+  border-radius: 10px; background: rgba(255, 255, 255, .1); font-size: 20px;
+}
+.modal-cuerpo { padding: 18px 20px 4px; font-size: 15px; line-height: 1.5; }
+.modal-cuerpo p { margin: 0 0 10px; }
+.modal-cuerpo > label { margin-top: 12px; }
+input.modal-valor { font-size: 26px; font-weight: 800; text-align: center; letter-spacing: .5px; }
+.modal-placa {
+  display: block; width: max-content; margin: 2px auto 14px; padding: 6px 18px;
+  font: 900 28px "Arial Black", "Segoe UI", system-ui, sans-serif; letter-spacing: 4px; color: #111;
+  background: linear-gradient(180deg, #fde047, var(--acento)); border: 3px solid #111; border-radius: 10px;
+  box-shadow: inset 0 0 0 2px #fde047;
+}
+.modal-datos { border: 1px solid var(--borde); border-radius: 12px; overflow: hidden; margin-bottom: 10px; }
+.modal-datos div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--borde); }
+.modal-datos div:last-child { border-bottom: 0; }
+.modal-datos span { color: var(--suave); font-size: 14px; }
+.modal-datos b { text-align: right; }
+.modal-datos b.grande { font-size: 22px; font-weight: 900; color: var(--verde); }
+.modal-opciones { display: grid; gap: 8px; margin-top: 14px; }
+label.opcion {
+  display: flex; gap: 10px; align-items: flex-start; margin: 0;
+  padding: 11px 12px; border: 2px solid var(--borde); border-radius: 12px;
+  font-size: 14px; color: var(--texto); cursor: pointer; transition: border-color .15s, background .15s;
+}
+label.opcion:has(input:checked) { border-color: var(--primario); background: #eff6ff; }
+label.opcion input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--primario); }
+label.opcion small { display: block; color: var(--suave); font-weight: 500; }
+.modal-error { margin: 8px 20px 0; padding: 9px 12px; border-radius: 10px; background: #fee2e2; color: #7f1d1d; font-size: 14px; font-weight: 600; }
+.modal-botones { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px 20px; }
+.modal-botones .btn { min-width: 120px; }
+@keyframes fondoEntra { from { opacity: 0; } }
+@keyframes modalEntra { from { opacity: 0; transform: translateY(10px) scale(.97); } }
+
 /* ---------- Celular ---------- */
 @media (max-width: 640px) {
   header { padding: 10px 14px 12px; }
@@ -235,4 +292,5 @@ td b { font-weight: 800; letter-spacing: .3px; }
   .card { padding: 16px; }
   input.placa { font-size: 28px; letter-spacing: 4px; }
   .kpi .v { font-size: 22px; }
+  .modal-botones .btn { flex: 1; min-width: 0; }
 }

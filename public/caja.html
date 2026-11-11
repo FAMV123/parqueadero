@@ -354,8 +354,18 @@
     $('formNuevaMens').addEventListener('submit', async (e) => {
       e.preventDefault();
       const body = { placa: $('nmPlaca').value, tipo: $('nmTipo').value, propietario: $('nmProp').value, telefono: $('nmTel').value, valor: $('nmValor').value };
-      if (!confirm(`¿Crear mensualidad para ${limpiarPlaca(body.placa)}?\n\nValor recibido: ${pesos(body.valor)}\nVálida hasta: ${$('nmHasta').textContent}`)) return;
-      const btn = e.submitter; btn.disabled = true;
+      const btn = e.submitter;
+      const ok = await confirmar({
+        icono: '🗓️', titulo: 'Crear mensualidad', boton: 'Guardar y cobrar', tipoBoton: 'verde',
+        cuerpo: placaVentana(limpiarPlaca(body.placa)) + datosVentana([
+          ['Tipo', esc(nombreTipo(body.tipo))],
+          ...(body.propietario.trim() ? [['Propietario', esc(body.propietario)]] : []),
+          ['Válida hasta', esc($('nmHasta').textContent)],
+          ['Valor recibido', pesos(body.valor), 'grande'],
+        ]),
+      });
+      if (!ok) return;
+      btn.disabled = true;
       try {
         const r = await api('/api/mensualidades', { method: 'POST', body });
         if (r.pago) imprimirPago(r.pago);
@@ -371,10 +381,16 @@
       const m = mensualidades.find((x) => x.id === id); if (!m) return;
       const hoy = hoyStr();
       const nueva = sumarMes(m.fecha_fin >= hoy ? m.fecha_fin : hoy);
-      const txt = prompt(`Renovar ${m.placa} por 1 mes (quedará válida hasta ${nueva}).\n\nValor recibido:`, m.valor || valorMesDe(m.tipo) || '');
-      if (txt === null) return;
-      const valor = soloNumero(txt);
-      if (!valor) return aviso($('msgMens'), 'Escriba el valor recibido', 'error');
+      const r0 = await pedirValor({
+        titulo: 'Renovar mensualidad', boton: 'Renovar y cobrar', valor: m.valor || valorMesDe(m.tipo),
+        cuerpo: placaVentana(m.placa) + datosVentana([
+          ...(m.propietario ? [['Propietario', esc(m.propietario)]] : []),
+          ['Vencía', m.fecha_fin],
+          ['Quedará válida hasta', nueva],
+        ]),
+      });
+      if (!r0) return;
+      const valor = r0.valor;
       try {
         const r = await api(`/api/mensualidades/${id}/pago`, { method: 'POST', body: { valor } });
         imprimirPago(r.pago);

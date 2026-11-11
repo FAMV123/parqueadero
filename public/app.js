@@ -46,6 +46,92 @@ const soloNumero = (t) => Number(String(t || '').replace(/[^\d]/g, '')) || 0; //
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function aviso(el, texto, tipo = 'ok') { el.className = 'aviso ' + tipo; el.textContent = texto; }
 
+// ---------- Ventanas propias del sistema (reemplazan alert / confirm / prompt del navegador) ----------
+// Devuelve una promesa: lo que entregue alAceptar (o true), y null si se cancela.
+function abrirVentana({ icono = 'ℹ️', titulo = '', cuerpo = '', boton = 'Aceptar', tipoBoton = '', cancelar = 'Cancelar', alAceptar, alAbrir }) {
+  return new Promise((resolve) => {
+    const fondo = document.createElement('div');
+    fondo.className = 'modal-fondo';
+    fondo.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-cab"><span class="modal-icono">${icono}</span><h3>${esc(titulo)}</h3></div>
+      <div class="modal-cuerpo">${cuerpo}</div>
+      <div class="modal-error" hidden></div>
+      <div class="modal-botones">
+        ${cancelar ? `<button type="button" class="btn gris" data-r="no">${esc(cancelar)}</button>` : ''}
+        <button type="button" class="btn ${tipoBoton}" data-r="si">${esc(boton)}</button>
+      </div></div>`;
+    const anterior = document.activeElement;
+    document.body.appendChild(fondo);
+    const modal = fondo.querySelector('.modal');
+    const error = fondo.querySelector('.modal-error');
+    let cerrada = false;
+    const cerrar = (valor) => {
+      if (cerrada) return;
+      cerrada = true;
+      document.removeEventListener('keydown', teclas, true);
+      fondo.classList.add('saliendo');
+      setTimeout(() => fondo.remove(), 150);
+      if (anterior && anterior.focus) anterior.focus();
+      resolve(valor);
+    };
+    const aceptar = () => {
+      if (!alAceptar) return cerrar(true);
+      const r = alAceptar(modal);
+      if (typeof r === 'string') { error.textContent = r; error.hidden = false; return; } // texto = error, no cierra
+      cerrar(r);
+    };
+    function teclas(e) {
+      if (e.key === 'Escape') { e.preventDefault(); cerrar(null); }
+      else if (e.key === 'Enter' && e.target.dataset.r !== 'no') { e.preventDefault(); aceptar(); }
+    }
+    document.addEventListener('keydown', teclas, true);
+    fondo.addEventListener('click', (e) => { if (e.target === fondo) cerrar(null); });
+    modal.querySelector('[data-r="si"]').addEventListener('click', aceptar);
+    const btnNo = modal.querySelector('[data-r="no"]');
+    if (btnNo) btnNo.addEventListener('click', () => cerrar(null));
+    if (alAbrir) alAbrir(modal);
+    (modal.querySelector('.modal-cuerpo input') || modal.querySelector('[data-r="si"]')).focus();
+  });
+}
+
+// Pregunta Sí / No. Devuelve true o false.
+const confirmar = (opciones) => abrirVentana(opciones).then((r) => r === true);
+
+// Mensaje con un solo botón
+const alerta = (mensaje, titulo = 'Atención') =>
+  abrirVentana({ icono: '⚠️', titulo, cuerpo: `<p>${esc(mensaje)}</p>`, cancelar: '', boton: 'Entendido' });
+
+// Lista de datos dentro de la ventana: [['Tipo', 'Moto'], ['Valor', '$60.000', 'grande']] (valores ya escapados)
+const datosVentana = (filas) =>
+  `<div class="modal-datos">${filas.map(([k, v, clase]) => `<div><span>${esc(k)}</span><b class="${clase || ''}">${v}</b></div>`).join('')}</div>`;
+
+// Placa amarilla para mostrar dentro de la ventana
+const placaVentana = (placa) => `<span class="modal-placa">${esc(placa)}</span>`;
+
+// Pide un valor en pesos (con separador de miles) y, si se indica, una opción. Devuelve { valor, opcion } o null.
+function pedirValor({ icono = '💵', titulo, cuerpo = '', etiqueta = 'Valor recibido', valor = '', boton = 'Aceptar', tipoBoton = 'verde', opciones }) {
+  const formato = (n) => (n ? Number(n).toLocaleString('es-CO') : '');
+  const radios = opciones ? `<div class="modal-opciones">${opciones.map((o, i) => `
+    <label class="opcion"><input type="radio" name="opcionVentana" value="${esc(o.valor)}" ${i === 0 ? 'checked' : ''}>
+      <span><b>${esc(o.titulo)}</b>${o.detalle ? `<small>${esc(o.detalle)}</small>` : ''}</span></label>`).join('')}</div>` : '';
+  return abrirVentana({
+    icono, titulo, boton, tipoBoton,
+    cuerpo: `${cuerpo}<label>${esc(etiqueta)}</label>
+      <input class="modal-valor" type="text" inputmode="numeric" autocomplete="off" value="${formato(valor)}">${radios}`,
+    alAbrir: (m) => {
+      const inp = m.querySelector('.modal-valor');
+      inp.addEventListener('input', () => { inp.value = formato(soloNumero(inp.value)); });
+      setTimeout(() => inp.select(), 0);
+    },
+    alAceptar: (m) => {
+      const v = soloNumero(m.querySelector('.modal-valor').value);
+      if (!v) return 'Escriba el valor recibido';
+      const op = m.querySelector('input[name="opcionVentana"]:checked');
+      return { valor: v, opcion: op ? op.value : null };
+    },
+  });
+}
+
 // ---------- Tipos de vehículo (vienen de la tabla tarifas) ----------
 let TIPOS = []; // se llena con lo que devuelve /api/config
 const ICONOS = { moto: '🏍️', carro: '🚗', bicicleta: '🚲' };
