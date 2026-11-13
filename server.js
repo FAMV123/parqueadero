@@ -19,6 +19,16 @@ const PORT = process.env.PORT || 3000;
 const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
 const app = express();
 app.use(express.json());
+// Direcciones limpias: /caja y /administrador (sin ".html" en la barra del navegador)
+const PAGINAS = { '/caja': 'caja.html', '/administrador': 'admin.html' };
+for (const [ruta, archivo] of Object.entries(PAGINAS)) {
+  app.get(ruta, (req, res) => res.sendFile(path.join(__dirname, 'public', archivo)));
+}
+// Las direcciones viejas siguen funcionando y se cambian solas a las nuevas
+app.get('/caja.html', (req, res) => res.redirect('/caja'));
+app.get('/admin.html', (req, res) => res.redirect('/administrador'));
+app.get('/index.html', (req, res) => res.redirect('/'));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- Utilidades ----------
